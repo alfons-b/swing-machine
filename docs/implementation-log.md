@@ -6,7 +6,7 @@
 |---|---|---|
 | M1.1 | Repository, environment, configuration, schema and migrations, source registry and permission gate, instrument master, trading calendar, EOD ingestion framework, CSV adapter, CI | **Done** (2026-11-21) |
 | M1.2 | Source review and selection (ADR 0008); EODHD adapter with call budget, refresh planner, bulk mode; ticker-list comparison; live JK test; archive replay | **Done** (2026-11-21), apart from the scheduled workflow (OI-20) |
-| M1.3 | Corporate action ingestion; split and total-return adjustment factors; adjusted series; raw↔adjusted reconciliation | Planned |
+| M1.3 | Corporate action ingestion; split and total-return adjustment factors; adjusted series; raw↔adjusted reconciliation | **Done** (2026-11-21) |
 | M1.4 | Fundamental ingestion (point in time), financial facts normalisation | Planned |
 | M1.5 | Cross-source reconciliation job, `reconciliation_results` | Planned |
 | M1.6 | Backups (daily, 90-day retention) and restore test; Phase 1 acceptance review | Planned |
@@ -98,3 +98,32 @@ EODHD from their live terms and pricing pages.
 - **Test-isolation bug fixed:** a CLI test read the real `.env` token and attempted a network
   call; an autouse fixture now removes all `IDX_*` settings and `.env` loading from tests.
 - 137 tests pass (SQLite + PostgreSQL), 95% line coverage.
+
+## 2026-11-21 — M1.3 corporate actions (branch `m1.3-corporate-actions`)
+
+Owner decisions: budget stays Rp0; the agent sources financial statements (M1.4); start M1.3.
+
+**Built (ADR 0009)**
+- Migration `0002`: versioned `corporate_actions`, `reconciliation_results`, `artifact_fetches`
+  (with backfill), `daily_prices.volume_basis` (with backfill for EODHD rows), factor
+  versioning per action with recorded inputs. Up/down/drift checked on PostgreSQL and SQLite.
+- `corporate_actions/`: explicit schemas, input rules, versioned writer, pipeline (reuses the EOD
+  pipeline's gate, archive and atomic runs), EODHD and CSV adapters, factor formulas and service,
+  point-in-time adjusted series with EODHD volume conversion, two reconciliation checks.
+- CLI: `idx ca fetch-eodhd | import | factors | reconcile`, `idx prices show`,
+  `idx ingest replay --dataset corporate_actions`.
+- CI actions moved to `checkout@v7` / `setup-uv@v7` (Node 24; removes the deprecation warning).
+
+**Verified live** (10 API calls): 12 dividends; 5/5 vendor reconciliation pass (max diff
+0.000002%); factor recompute idempotent; full database rebuild from the archive alone gives
+identical results with no API calls.
+
+**Bugs found and fixed**
+- *Lost fetch provenance:* identical response bodies (e.g. empty split lists) were stored once,
+  so the system could not prove which tickers had been checked. Added the `artifact_fetches` log.
+- *Mixed archive folder:* replay fed corporate-action files to the price parser. Replay now
+  filters by payload kind.
+- Existing EODHD bars had no volume basis. Migration 0002 backfills it.
+- A field named `date` shadowed the `date` type in the vendor schema (caught by mypy).
+
+**Tests:** 166 pass (SQLite + PostgreSQL).

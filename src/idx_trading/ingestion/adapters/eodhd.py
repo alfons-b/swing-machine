@@ -23,7 +23,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator
 
-from idx_trading.db.enums import PermissionPurpose
+from idx_trading.db.enums import PermissionPurpose, VolumeBasis
 from idx_trading.errors import QuotaExceededError, SourceHttpError
 from idx_trading.ingestion.adapters.base import SourceAdapter
 from idx_trading.ingestion.http import HttpClient
@@ -33,7 +33,7 @@ from idx_trading.instruments.service import normalize_ticker
 SOURCE_ID = "eodhd"
 COST_EOD = 1
 COST_BULK = 100
-VOLUME_BASIS = "split_adjusted"
+VOLUME_BASIS = VolumeBasis.SPLIT_ADJUSTED_AT_RETRIEVAL.value
 #: Statuses that mean "you are not allowed": never retried, never worked around.
 _FATAL = {401, 402, 403}
 

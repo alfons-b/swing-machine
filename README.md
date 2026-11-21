@@ -2,7 +2,7 @@
 
 A personal quantitative research platform for the Indonesia Stock Exchange (BEI/IDX).
 
-**Current state: Phase 1, Milestones M1.1–M1.2 — data foundation and automated EOD source.** There are no models, signals or
+**Current state: Phase 1, Milestones M1.1–M1.3 — data foundation, automated EOD source, corporate actions and adjusted prices.** There are no models, signals or
 dashboard yet. By design (PRD §28, §30), these come only after the data infrastructure passes
 its acceptance tests.
 
@@ -108,6 +108,38 @@ uv run idx ingest replay --source eodhd
 
 Run the EODHD refresh every weekday after 17:30 WIB. On Windows, use Task Scheduler (run
 `uv run idx ingest eodhd --universe` in the project folder); on Linux or macOS, use cron.
+
+Corporate actions and adjusted prices (ADR 0009):
+
+```bash
+uv run idx ca fetch-eodhd --universe
+```
+
+```bash
+uv run idx ca import path/to/corporate_actions.csv
+```
+
+```bash
+uv run idx ca factors
+```
+
+```bash
+uv run idx ca reconcile --universe
+```
+
+```bash
+uv run idx prices show BBCA --adjust total_return --start 2026-01-01 --csv bbca.csv
+```
+
+- `ca fetch-eodhd` fetches dividends and splits (2 calls per ticker, least recently checked
+  first, within the daily budget).
+- `ca import` loads actions you enter from IDX/KSEI announcements. Columns: `ticker,
+  action_type, ex_date, ratio_old, ratio_new, cash_amount, exercise_price, currency,
+  announcement_date, record_date, payment_date`. Manual entries override EODHD for the same event.
+- `ca factors` recomputes the versioned adjustment factors; `ca reconcile` checks them against
+  EODHD's adjusted close and checks splits against prices.
+- `prices show` prints or exports `raw`, `split` or `total_return` series; add
+  `--as-of DATE` for point-in-time adjustment.
 
 Other useful commands: `idx sources list`, `idx sources check <id> automated_ingestion`,
 `idx instruments universe --on 2026-11-20 --eligible-only`. Add `--help` to any command for

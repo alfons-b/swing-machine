@@ -3,10 +3,12 @@
 from idx_trading.db.models.corporate_actions import CorporateAction, PriceAdjustmentFactor
 from idx_trading.db.models.fundamentals import FinancialFact, FinancialReport
 from idx_trading.db.models.ingestion import (
+    ArtifactFetch,
     DataQualityIssue,
     IngestionRecord,
     IngestionRun,
     RawArtifact,
+    ReconciliationResult,
 )
 from idx_trading.db.models.market import DailyPrice
 from idx_trading.db.models.reference import (
@@ -22,6 +24,7 @@ from idx_trading.db.models.reference import (
 from idx_trading.db.models.sources import DataSource, SourcePermission
 
 __all__ = [
+    "ArtifactFetch",
     "CorporateAction",
     "DailyPrice",
     "DataQualityIssue",
@@ -37,6 +40,7 @@ __all__ = [
     "ListingHistory",
     "PriceAdjustmentFactor",
     "RawArtifact",
+    "ReconciliationResult",
     "Sector",
     "SourcePermission",
     "TickerHistory",

@@ -15,6 +15,8 @@ class FakeEodhd:
         self.fail_first: int = 0  # transient 503s before succeeding
         self.symbols: list[dict] = []
         self.delisted: list[dict] = []
+        self.dividends: dict[str, list[dict]] = {}  # "BBCA.JK" -> /div rows
+        self.splits: dict[str, list[dict]] = {}  # "BBCA.JK" -> /splits rows
 
     def add(self, symbol: str, date: str, o, h, lo, c, v, adj=None) -> None:
         self.bars.setdefault(symbol, []).append(
@@ -56,6 +58,13 @@ class FakeEodhd:
         if "/exchange-symbol-list/" in parsed.path:
             data = self.delisted if q.get("delisted") == "1" else self.symbols
             return 200, ctype, json.dumps(data).encode()
+        for prefix, store in (("/div/", self.dividends), ("/splits/", self.splits)):
+            if prefix in parsed.path:
+                sym = parsed.path.rsplit("/", 1)[-1]
+                rows = [
+                    r for r in store.get(sym, []) if q.get("from", "0000") <= r["date"] <= q.get("to", "9999")
+                ]
+                return 200, ctype, json.dumps(rows).encode()
         if "/eod/" in parsed.path:
             sym = parsed.path.rsplit("/", 1)[-1]
             rows = [

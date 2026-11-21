@@ -59,7 +59,7 @@ def test_eodhd_end_to_end_is_idempotent(seeded, run, tmp_path):
         for art in s.scalars(select(RawArtifact)):
             assert "test-token" not in (art.origin or "")
             assert RawArchive(tmp_path / "raw").read(art.storage_path).count(b"test-token") == 0
-            assert art.extra["volume_basis"] == "split_adjusted"
+            assert art.extra["volume_basis"] == "split_adjusted_at_retrieval"
         run_row = s.scalar(select(IngestionRun).order_by(IngestionRun.run_id))
         assert run_row.params["options"]["windows"][0]["ticker"] == "BBCA"
         assert "test-token" not in str(run_row.params)

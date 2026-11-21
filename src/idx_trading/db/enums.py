@@ -113,3 +113,15 @@ class FiscalPeriod(StrEnum):
     Q4 = "Q4"
     H1 = "H1"
     FY = "FY"
+
+
+class VolumeBasis(StrEnum):
+    RAW = "raw"
+    #: Adjusted by the vendor for splits known at retrieval time (EODHD).
+    SPLIT_ADJUSTED_AT_RETRIEVAL = "split_adjusted_at_retrieval"
+
+
+class ReconciliationStatus(StrEnum):
+    PASS = "pass"
+    WARN = "warn"
+    FAIL = "fail"

@@ -30,8 +30,10 @@ from idx_trading.db.enums import (
     RunStatus,
     Severity,
     ValidationStatus,
+    VolumeBasis,
 )
 from idx_trading.db.models import (
+    ArtifactFetch,
     DailyPrice,
     DataQualityIssue,
     DataSource,
@@ -57,6 +59,8 @@ from idx_trading.instruments import InstrumentService
 from idx_trading.registry import is_permitted, require_permission
 
 log = logging.getLogger(__name__)
+#: Labels written by earlier versions, kept so old archives replay cleanly.
+_LEGACY_VOLUME_BASIS = {"split_adjusted": VolumeBasis.SPLIT_ADJUSTED_AT_RETRIEVAL.value}
 
 
 def _jsonable(value: object) -> object:
@@ -207,6 +211,25 @@ class EodIngestionPipeline:
                     src.last_failed_ingestion = run.finished_at
 
     def _archive(self, s: Session, source_id: str, payload: RawPayload, run_id: int) -> int:
+        artifact_id = self._store_artifact(s, source_id, payload, run_id)
+        meta = payload.metadata
+        kind = meta.get("kind") or meta.get("mode")
+        s.add(
+            ArtifactFetch(
+                artifact_id=artifact_id,
+                run_id=run_id,
+                source_id=source_id,
+                origin=payload.origin,
+                retrieved_at=payload.retrieved_at,
+                kind=str(kind) if kind else None,
+                ticker=str(meta["ticker"]) if meta.get("ticker") else None,
+                extra=_jsonable(meta),
+            )
+        )
+        s.flush()
+        return artifact_id
+
+    def _store_artifact(self, s: Session, source_id: str, payload: RawPayload, run_id: int) -> int:
         sha = RawArchive.digest(payload.content)
         existing = s.scalar(
             select(RawArtifact).where(RawArtifact.source_id == source_id, RawArtifact.sha256 == sha)
@@ -287,8 +310,14 @@ class EodIngestionPipeline:
         writer = PriceWriter(s, policy)
 
         bars_with_artifact: list[tuple[EodBar, int]] = []
+        basis_of_artifact: dict[int, str | None] = {}
         for payload in adapter.fetch(request):
             artifact_id = self._archive(s, src, payload, run_id)
+            vb = payload.metadata.get("volume_basis")
+            vb = _LEGACY_VOLUME_BASIS.get(str(vb), vb) if vb else None
+            if vb is not None and vb not in {v.value for v in VolumeBasis}:
+                raise ValueError(f"unknown volume_basis {vb!r} in payload metadata")
+            basis_of_artifact[artifact_id] = str(vb) if vb else None
             parsed = adapter.parse(payload)
             for err in parsed.errors:
                 c.received += 1
@@ -362,6 +391,7 @@ class EodIngestionPipeline:
                     validation_status=vstatus,
                     run_id=run_id,
                     artifact_id=artifact_of[bar.key],
+                    volume_basis=basis_of_artifact.get(artifact_of[bar.key]),
                 )
                 if vstatus == ValidationStatus.WARNING and outcome != RecordOutcome.UNCHANGED:
                     c.warned += 1

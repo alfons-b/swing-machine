@@ -52,7 +52,7 @@ def test_per_ticker_fetch_and_parse(fake):
     assert fake.calls == ["/api/eod/BBCA.JK", "/api/eod/TLKM.JK"]
     for p in payloads:
         assert "test-token" not in p.origin and "api_token=***" in p.origin
-        assert p.metadata["volume_basis"] == "split_adjusted"
+        assert p.metadata["volume_basis"] == "split_adjusted_at_retrieval"
         assert b"adjusted_close" in p.content  # kept in the raw archive
 
 

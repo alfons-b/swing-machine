@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from idx_trading.db.base import Base, enum_check, utcnow
-from idx_trading.db.enums import ValidationStatus
+from idx_trading.db.enums import ValidationStatus, VolumeBasis
 
 Price = Numeric(18, 4)
 Money = Numeric(24, 2)
@@ -52,6 +52,12 @@ class DailyPrice(Base):
         Index("ix_daily_prices_date", "trade_date"),
         enum_check("validation_status", ValidationStatus),
         CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint(
+            "volume_basis IS NULL OR volume_basis IN ("
+            + ", ".join(f"'{v.value}'" for v in VolumeBasis)
+            + ")",
+            name="volume_basis_valid",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
@@ -72,6 +78,8 @@ class DailyPrice(Base):
     foreign_buy_value: Mapped[Decimal | None] = mapped_column(Money)
     foreign_sell_value: Mapped[Decimal | None] = mapped_column(Money)
 
+    #: What `volume` means. NULL = as reported, basis not stated by the source.
+    volume_basis: Mapped[str | None] = mapped_column(String(40))
     validation_status: Mapped[str] = mapped_column(String(20))
     record_hash: Mapped[str] = mapped_column(String(64))
     version: Mapped[int] = mapped_column(Integer, default=1)

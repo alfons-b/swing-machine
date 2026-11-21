@@ -12,7 +12,7 @@ Milestone numbering is described in `implementation-log.md`.
 | FR-002 | Ticker history | Done | `ticker_history`, `InstrumentService.assign_ticker/change_ticker/resolve` | `test_ticker_change_preserves_identity`, `test_ticker_reuse_*`, `test_overlapping_*` |
 | FR-003 | EOD OHLCV ingestion | Partial — CSV adapter + EODHD adapter (per-ticker on free plan, bulk on paid); live JK test passed 2026-11-21 | `ingestion/`, `ingestion/adapters/eodhd.py` | `tests/integration/test_pipeline.py`, `tests/integration/test_eodhd_pipeline.py`, `tests/unit/test_eodhd_adapter.py` |
 | FR-004 | Delisted historical data | Partial — modelled and importable; real data depends on OI-02 | `listing_history`, `status_on` | `test_csv_import_is_idempotent_and_keeps_delisted`, `test_listing_status_replay` |
-| FR-005 | Corporate action management | Schema | `db/models/corporate_actions.py` | migration test |
+| FR-005 | Corporate action management | Done for splits, dividends, rights and bonus shares (ADR 0009); history limited by source (OI-26) | `corporate_actions/` | `tests/unit/test_factors.py`, `tests/integration/test_corporate_actions.py` |
 | FR-006 | Financial statement ingestion | Schema (point-in-time columns) | `db/models/fundamentals.py` | migration test |
 | FR-007 | Financial ratio computation | Planned (M2) | — | — |
 | FR-008 | Data provenance | Done for prices | `raw_artifacts`, `ingestion_runs`, `ingestion_records`, FK on `daily_prices` | `test_end_to_end_csv_ingestion` |
@@ -35,9 +35,9 @@ Milestone numbering is described in `implementation-log.md`.
 | Negative volume | `negative_quantity` | error |
 | Invalid OHLC relationships | `ohlc_inconsistent`, `price_non_positive`, `close_missing` | error |
 | Extreme price changes | `extreme_move` | warning |
-| Corporate action inconsistencies | `extreme_move` as a proxy; full check needs M1.3 | warning |
+| Corporate action inconsistencies | `corporate_action_inconsistency` (split vs price), `ca_*` input rules, `adjustment_unresolved` | warning / error |
 | Stale data | `coverage.check_freshness` | report |
-| Cross-source discrepancies | rows kept per source; reconciliation job planned (M1.5) | — |
+| Cross-source discrepancies | rows kept per source; vendor-adjusted-close reconciliation done (M1.3); price-vs-price check planned (M1.5) | — |
 | Revision of stored data | `revision_conflict` | warning |
 
 ## Non-functional requirements
@@ -54,3 +54,12 @@ Milestone numbering is described in `implementation-log.md`.
 | NFR-013 Legal data acquisition | Done | ADR 0004, ADR 0008 (source review), `test_unpermitted_source_never_runs`, `test_shipped_registry_reflects_source_review` |
 | NFR-005/006 Secrets | Done for EODHD | token only from env, redacted in URLs, archive and run params (`test_eodhd_end_to_end_is_idempotent`) |
 | NFR-015 No broker execution | Done | no execution code exists |
+
+## PRD §7.4 / §22 (Data) acceptance
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Three price representations (raw, split-adjusted, total-return) | Done | `corporate_actions/adjusted.py`, `idx prices show --adjust` |
+| Versioned adjustment factors with history | Done | `price_adjustment_factors.factor_version`, `test_revision_creates_new_factor_version` |
+| Raw and adjusted prices can be reconciled | Done | `idx ca reconcile`; live: 5/5 pass, max 0.000002% |
+| No look-ahead in adjustment | Done | `as_of`, `test_cumulative_applies_only_to_bars_before_ex_date_and_respects_as_of` |

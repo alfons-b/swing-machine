@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from idx_trading.db.base import Base, enum_check, utcnow
 from idx_trading.db.enums import (
     IssueStatus,
+    ReconciliationStatus,
     RecordOutcome,
     RunStatus,
     Severity,
@@ -75,6 +76,25 @@ class RawArtifact(Base):
     extra: Mapped[dict[str, Any]] = mapped_column(default=dict)
 
 
+class ArtifactFetch(Base):
+    """One retrieval event. Identical bodies are stored once (`raw_artifacts`), but every
+    request that returned them is logged here, so "was X checked, and when?" always has
+    an answer (e.g. many tickers with an empty split list share one artifact)."""
+
+    __tablename__ = "artifact_fetches"
+    __table_args__ = (Index("ix_artifact_fetches_artifact", "artifact_id"),)
+
+    fetch_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    artifact_id: Mapped[int] = mapped_column(ForeignKey("raw_artifacts.artifact_id"))
+    run_id: Mapped[int] = mapped_column(ForeignKey("ingestion_runs.run_id"), index=True)
+    source_id: Mapped[str] = mapped_column(ForeignKey("data_sources.source_id"))
+    origin: Mapped[str | None] = mapped_column(Text)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    kind: Mapped[str | None] = mapped_column(String(40))
+    ticker: Mapped[str | None] = mapped_column(String(12))
+    extra: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+
 class IngestionRecord(Base):
     """Per-record outcome of an ingestion run, for full traceability."""
 
@@ -119,3 +139,27 @@ class DataQualityIssue(Base):
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolution_note: Mapped[str | None] = mapped_column(Text)
+
+
+class ReconciliationResult(Base):
+    """Outcome of one reconciliation check (PRD §7.2 Data Quality, §22 Data)."""
+
+    __tablename__ = "reconciliation_results"
+    __table_args__ = (
+        enum_check("status", ReconciliationStatus),
+        Index("ix_reconciliation_lookup", "check_name", "instrument_id", "trade_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    check_name: Mapped[str] = mapped_column(String(60))
+    batch_id: Mapped[str] = mapped_column(String(36), index=True)
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("data_sources.source_id"))
+    instrument_id: Mapped[int | None] = mapped_column(ForeignKey("instruments.instrument_id"))
+    trade_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(10))
+    expected: Mapped[str | None] = mapped_column(String(60))
+    observed: Mapped[str | None] = mapped_column(String(60))
+    difference: Mapped[str | None] = mapped_column(String(60))
+    tolerance: Mapped[str | None] = mapped_column(String(60))
+    details: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

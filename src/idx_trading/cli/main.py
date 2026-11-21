@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -25,12 +25,16 @@ sources_app = typer.Typer(help="Data source registry", no_args_is_help=True)
 cal_app = typer.Typer(help="Trading calendar", no_args_is_help=True)
 inst_app = typer.Typer(help="Instrument master", no_args_is_help=True)
 ingest_app = typer.Typer(help="EOD ingestion", no_args_is_help=True)
+ca_app = typer.Typer(help="Corporate actions and adjustment factors", no_args_is_help=True)
+prices_app = typer.Typer(help="Price series (raw / split / total-return)", no_args_is_help=True)
 for sub, name in (
     (db_app, "db"),
     (sources_app, "sources"),
     (cal_app, "calendar"),
     (inst_app, "instruments"),
     (ingest_app, "ingest"),
+    (ca_app, "ca"),
+    (prices_app, "prices"),
 ):
     app.add_typer(sub, name=name)
 
@@ -443,13 +447,14 @@ def instruments_eodhd_diff(
 def ingest_replay(
     source: Annotated[str, typer.Option(help="Archived source to replay: eodhd | manual_csv")],
     profile: Annotated[str, typer.Option(help="CSV profile (manual_csv only)")] = "standard",
+    dataset: Annotated[str, typer.Option(help="eod_prices | corporate_actions")] = "eod_prices",
     supersede: bool = False,
 ) -> None:
-    """Rebuild prices from the raw archive (no source calls, no quota used)."""
+    """Rebuild prices or corporate actions from the raw archive (no source calls)."""
     from idx_trading.ingestion.adapters import CsvEodAdapter
     from idx_trading.ingestion.adapters.base import SourceAdapter
     from idx_trading.ingestion.adapters.eodhd import CallBudget, EodhdEodAdapter
-    from idx_trading.ingestion.adapters.replay import ArchiveReplayAdapter
+    from idx_trading.ingestion.adapters.replay import EOD_KINDS, ArchiveReplayAdapter
     from idx_trading.ingestion.archive import RawArchive
     from idx_trading.ingestion.http import HttpClient
     from idx_trading.ingestion.pipeline import EodIngestionPipeline
@@ -457,6 +462,9 @@ def ingest_replay(
     from idx_trading.ingestion.writer import RevisionPolicy
 
     st = get_settings()
+    if dataset == "corporate_actions":
+        _replay_corporate_actions(source, supersede)
+        return
     parser: SourceAdapter
     if source == "eodhd":
         # Parser only: it never sends a request, so a placeholder token is fine.
@@ -473,9 +481,278 @@ def ingest_replay(
                 extreme_move_threshold=st.extreme_move_threshold,
                 calendar_code=st.calendar_code,
             ).run(
-                ArchiveReplayAdapter(parser, st.raw_archive_dir),
+                ArchiveReplayAdapter(parser, st.raw_archive_dir, EOD_KINDS),
                 FetchRequest(),
                 job_name=f"replay_{source}",
+                policy=RevisionPolicy.SUPERSEDE if supersede else RevisionPolicy.FLAG,
+            )
+    except (IdxTradingError, OSError) as exc:
+        _fail(exc)
+    typer.echo(f"run {summary.run_id} {summary.status.value}: {summary.counts}")
+    if summary.status.value == "failed":
+        raise typer.Exit(code=2)
+
+
+def _resolve_members(s: Session, tickers: str | None, universe: bool, on: date) -> list[tuple[str, int]]:
+    from idx_trading.instruments import InstrumentService
+
+    if bool(tickers) == universe:
+        _fail(IdxTradingError("give exactly one of --tickers or --universe"))
+    svc = InstrumentService(s)
+    if universe:
+        # Every listed instrument: corporate actions matter for all of them.
+        return [
+            (m.ticker, m.instrument_id)
+            for m in svc.universe_on(on)
+            if m.status.value in ("active", "unknown", "suspended")
+        ]
+    out = []
+    assert tickers is not None
+    for t in (x.strip().upper() for x in tickers.split(",") if x.strip()):
+        iid = svc.try_resolve(t, on)
+        if iid is None:
+            _fail(IdxTradingError(f"{t} is not in the instrument master on {on}"))
+        assert iid is not None
+        out.append((t, iid))
+    return out
+
+
+@ca_app.command("fetch-eodhd")
+def ca_fetch_eodhd(
+    tickers: Annotated[str | None, typer.Option(help="Comma-separated IDX tickers")] = None,
+    universe: Annotated[bool, typer.Option(help="All listed instruments")] = False,
+    budget: Annotated[int | None, typer.Option(help="Max API calls (2 per ticker)")] = None,
+    dry_run: bool = False,
+    supersede: bool = False,
+) -> None:
+    """Dividends + splits from EODHD (2 calls per ticker; least recently checked first)."""
+    from datetime import timedelta
+
+    from idx_trading.clock import exchange_today
+    from idx_trading.corporate_actions.adapters import EodhdCorporateActionAdapter
+    from idx_trading.corporate_actions.pipeline import CorporateActionPipeline
+    from idx_trading.db.models import ArtifactFetch
+    from idx_trading.ingestion.adapters.eodhd import TickerWindow
+    from idx_trading.ingestion.archive import RawArchive
+    from idx_trading.ingestion.schemas import FetchRequest
+    from idx_trading.ingestion.writer import RevisionPolicy
+
+    st = get_settings()
+    today = exchange_today()
+    with _db() as s:
+        members = _resolve_members(s, tickers, universe, today)
+        last: dict[str, datetime] = {}
+        for f in s.scalars(
+            select(ArtifactFetch).where(ArtifactFetch.source_id == "eodhd", ArtifactFetch.kind == "splits")
+        ):
+            if f.ticker and (f.extra or {}).get("http_status", 200) == 200:
+                last[f.ticker] = max(last.get(f.ticker, f.retrieved_at), f.retrieved_at)
+    cap = budget or st.eodhd_daily_call_budget
+    order = sorted(members, key=lambda m: (m[0] in last, str(last.get(m[0], "")), m[0]))
+    plan = order[: cap // 2]
+    start = today - timedelta(days=st.eodhd_history_days - 1)
+    typer.echo(f"candidates={len(members)} planned={len(plan)} calls={2 * len(plan)} budget={cap}")
+    for t, _ in plan:
+        typer.echo(f"  {t:8} last checked {last.get(t)}")
+    if dry_run or not plan:
+        return
+    st, token, client, call_budget = _eodhd_parts(cap)
+    adapter = EodhdCorporateActionAdapter(
+        token, client, call_budget, exchange=st.eodhd_exchange, base_url=st.eodhd_base_url
+    )
+    req = FetchRequest(options={"windows": [TickerWindow(t, start, None) for t, _ in plan]})
+    try:
+        with _factory() as factory:
+            summary = CorporateActionPipeline(
+                factory, RawArchive(st.raw_archive_dir), calendar_code=st.calendar_code
+            ).run(
+                adapter,
+                req,
+                job_name="eodhd_corporate_actions",
+                policy=RevisionPolicy.SUPERSEDE if supersede else RevisionPolicy.FLAG,
+            )
+    except IdxTradingError as exc:
+        _fail(exc)
+    typer.echo(f"run {summary.run_id} {summary.status.value}: {summary.counts} calls={call_budget.used}")
+    if summary.status.value == "failed":
+        raise typer.Exit(code=2)
+
+
+@ca_app.command("import")
+def ca_import(files: list[Path], supersede: bool = False) -> None:
+    """Import corporate actions you entered from official announcements (CSV)."""
+    from idx_trading.corporate_actions.adapters import CsvCorporateActionAdapter
+    from idx_trading.corporate_actions.pipeline import CorporateActionPipeline
+    from idx_trading.ingestion.archive import RawArchive
+    from idx_trading.ingestion.schemas import FetchRequest
+    from idx_trading.ingestion.writer import RevisionPolicy
+
+    st = get_settings()
+    try:
+        with _factory() as factory:
+            summary = CorporateActionPipeline(
+                factory, RawArchive(st.raw_archive_dir), calendar_code=st.calendar_code
+            ).run(
+                CsvCorporateActionAdapter(),
+                FetchRequest(paths=tuple(str(f) for f in files)),
+                job_name="manual_corporate_actions",
+                policy=RevisionPolicy.SUPERSEDE if supersede else RevisionPolicy.FLAG,
+            )
+    except IdxTradingError as exc:
+        _fail(exc)
+    typer.echo(f"run {summary.run_id} {summary.status.value}: {summary.counts}")
+    if summary.status.value == "failed":
+        raise typer.Exit(code=2)
+
+
+@ca_app.command("factors")
+def ca_factors() -> None:
+    """(Re)compute versioned adjustment factors from the current corporate actions."""
+    from idx_trading.corporate_actions.factors import FactorService
+
+    with _db() as s:
+        r = FactorService(s, get_settings().calendar_code).recompute()
+    typer.echo(
+        f"inserted={r.inserted} unchanged={r.unchanged} superseded={r.superseded} "
+        f"retired={r.retired} duplicates_skipped={r.skipped_duplicates} unresolved={len(r.unresolved)}"
+    )
+    for u in r.unresolved:
+        typer.echo(f"  UNRESOLVED {u}")
+    if r.unresolved:
+        raise typer.Exit(code=2)
+
+
+@ca_app.command("reconcile")
+def ca_reconcile(
+    tickers: Annotated[str | None, typer.Option()] = None,
+    universe: bool = False,
+) -> None:
+    """Check our factors against the vendor's adjusted close, and splits against prices."""
+    from idx_trading.clock import exchange_today
+    from idx_trading.corporate_actions.reconcile import (
+        check_split_price_consistency,
+        reconcile_vendor_adjusted_close,
+    )
+    from idx_trading.db.models import ReconciliationResult
+    from idx_trading.ingestion.archive import RawArchive
+
+    st = get_settings()
+    with _db() as s:
+        ids = [iid for _, iid in _resolve_members(s, tickers, universe, exchange_today())]
+        v = reconcile_vendor_adjusted_close(s, RawArchive(st.raw_archive_dir), ids)
+        sp = check_split_price_consistency(s, ids, calendar_code=st.calendar_code, batch_id=v.batch_id)
+        rows = list(
+            s.scalars(select(ReconciliationResult).where(ReconciliationResult.batch_id == v.batch_id))
+        )
+        for r in rows:
+            name = (r.details or {}).get("ticker", r.instrument_id)
+            typer.echo(
+                f"  {r.check_name:24} {name!s:8} {r.trade_date or '':10} {r.status:4} "
+                f"{r.difference or ''} (tol {r.tolerance})"
+            )
+    typer.echo(
+        f"batch {v.batch_id}: vendor pass={v.passed} warn={v.warned} fail={v.failed} "
+        f"skipped={len(v.skipped)}; splits pass={sp.passed} fail={sp.failed}"
+    )
+    for msg in v.skipped + sp.skipped:
+        typer.echo(f"  skipped: {msg}")
+    if v.failed or sp.failed:
+        raise typer.Exit(code=2)
+
+
+@prices_app.command("show")
+def prices_show(
+    ticker: str,
+    adjust: Annotated[str, typer.Option(help="raw | split | total_return")] = "total_return",
+    start: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
+    end: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
+    as_of: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
+    csv_out: Annotated[Path | None, typer.Option("--csv", help="Write CSV to this path")] = None,
+) -> None:
+    """Print or export a price series for one ticker."""
+    import csv as _csv
+
+    from idx_trading.clock import exchange_today
+    from idx_trading.corporate_actions.adjusted import Adjustment, adjusted_bars
+    from idx_trading.instruments import InstrumentService
+
+    if adjust not in {a.value for a in Adjustment}:
+        _fail(IdxTradingError("--adjust must be raw, split or total_return"))
+    kind = Adjustment(adjust)
+    with _db() as s:
+        iid = InstrumentService(s).try_resolve(ticker, end.date() if end else exchange_today())
+        if iid is None:
+            _fail(IdxTradingError(f"{ticker} not found"))
+        assert iid is not None
+        bars = adjusted_bars(
+            s,
+            iid,
+            kind,
+            start=start.date() if start else None,
+            end=end.date() if end else None,
+            as_of=as_of.date() if as_of else None,
+        )
+    cols = ["date", "open", "high", "low", "close", "volume", "price_factor", "source", "volume_verified"]
+
+    def px(v: object) -> str:
+        return "" if v is None else f"{v:.4f}"
+
+    lines = [
+        [
+            b.trade_date.isoformat(),
+            px(b.open),
+            px(b.high),
+            px(b.low),
+            px(b.close),
+            "" if b.volume is None else f"{b.volume:.0f}",
+            f"{b.price_factor:.8f}",
+            b.source_id,
+            str(b.volume_verified),
+        ]
+        for b in bars
+    ]
+    if csv_out:
+        with csv_out.open("w", newline="", encoding="utf-8") as fh:
+            w = _csv.writer(fh)
+            w.writerow(cols)
+            w.writerows(lines)
+        typer.echo(f"wrote {len(lines)} rows to {csv_out}")
+        return
+    typer.echo("  ".join(cols))
+    for ln in lines:
+        typer.echo("  ".join(ln))
+
+
+def _replay_corporate_actions(source: str, supersede: bool) -> None:
+    from idx_trading.corporate_actions.adapters import (
+        ArchiveReplayActionAdapter,
+        CorporateActionAdapter,
+        CsvCorporateActionAdapter,
+        EodhdCorporateActionAdapter,
+    )
+    from idx_trading.corporate_actions.pipeline import CorporateActionPipeline
+    from idx_trading.ingestion.adapters.eodhd import CallBudget
+    from idx_trading.ingestion.archive import RawArchive
+    from idx_trading.ingestion.http import HttpClient
+    from idx_trading.ingestion.schemas import FetchRequest
+    from idx_trading.ingestion.writer import RevisionPolicy
+
+    st = get_settings()
+    parser: CorporateActionAdapter
+    if source == "eodhd":
+        parser = EodhdCorporateActionAdapter("replay", HttpClient(), CallBudget(1))
+    elif source == "manual_csv":
+        parser = CsvCorporateActionAdapter()
+    else:
+        _fail(IdxTradingError(f"replay is not supported for source {source!r}"))
+    try:
+        with _factory() as factory:
+            summary = CorporateActionPipeline(
+                factory, RawArchive(st.raw_archive_dir), calendar_code=st.calendar_code
+            ).run(
+                ArchiveReplayActionAdapter(parser, st.raw_archive_dir),
+                FetchRequest(),
+                job_name=f"replay_{source}_corporate_actions",
                 policy=RevisionPolicy.SUPERSEDE if supersede else RevisionPolicy.FLAG,
             )
     except (IdxTradingError, OSError) as exc:

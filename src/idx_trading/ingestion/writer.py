@@ -79,6 +79,7 @@ class PriceWriter:
         validation_status: ValidationStatus,
         run_id: int,
         artifact_id: int | None,
+        volume_basis: str | None = None,
     ) -> tuple[RecordOutcome, DailyPrice | None]:
         """Returns the outcome and, for CONFLICT, the existing row that was kept."""
         values = bar.value_fields()
@@ -110,6 +111,7 @@ class PriceWriter:
                 is_current=True,
                 ingestion_run_id=run_id,
                 artifact_id=artifact_id,
+                volume_basis=volume_basis,
                 **values,
             )
         )
