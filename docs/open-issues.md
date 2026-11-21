@@ -1,0 +1,29 @@
+# Open Issues
+
+Issues OI-01 to OI-12 come from PRD §27. They must be closed during implementation.
+
+| ID | Issue | Status | Notes / next action |
+|---|---|---|---|
+| OI-01 | Most complete legal EOD source for all IDX instruments | Partly closed (ADR 0008) | EODHD chosen as the automated source. At Rp0 it covers about 20 tickers a day, so full-market daily coverage needs either manual IDX stock-summary imports or the EODHD paid plan (owner's budget decision). The `idx_stock_summary` column profile still needs checking against a real export. |
+| OI-02 | Historical coverage of delisted stocks | Open | EODHD lists only 97 delisted JK tickers (26 of them warrants) against 923 active: far below IDX's real delisting history. Survivorship bias remains until another source (IDX delisting announcements, entered by hand) fills the gap. |
+| OI-03 | Legal/technical access to historical financial statements | Open | Blocks M1.4. |
+| OI-04 | Licensing terms of every adapter | Partly closed | Reviewed 2026-11-21: EODHD approved; Yahoo and IDX automated access denied; Twelve Data and Invezgo paid. KSEI, OJK, BI, BPS and Sectors.app still pending. |
+| OI-05 | Database storage consumption | Open | Measure after loading the first full year (≈ 900 instruments × 245 sessions). |
+| OI-06 | GitHub Actions memory/time limits | Open | Measure in M1.6, when a scheduled workflow exists. |
+| OI-07 | Model artifact storage | Open | Phase 2. |
+| OI-08 | Free-tier operational capacity (Supabase, Cloudflare) | Open | Phase 5. |
+| OI-09 | Empirical liquidity cutoffs | Open | Needs price history. Base eligibility rule is ready (`universe_on`). |
+| OI-10 | Drawdown tolerance | Open | Phase 3. |
+| OI-11 | Transaction cost assumptions for the intended broker | Open | Phase 3. |
+| OI-12 | Minimum statistical sample per horizon | Open | Phase 2/3. |
+| OI-13 | Trading sessions before ~2006 | Open | `exchange_calendars` rules for older years look incomplete (Dec 2002 = 13 sessions). Check against observed trading days. |
+| OI-14 | Check XIDX holidays against official IDX announcements | Partly closed | 2025-11-21 → 2026-11-20: the calendar's 239 sessions match EODHD's trading days exactly for 5 large caps. Older years still unchecked. | Correct rows by hand with `source_id` ≠ library; a reseed keeps them. |
+| OI-15 | `exchange_calendars` uses a pandas API deprecated in pandas 3.1 | Watch | Warning is filtered in tests. Upgrade `exchange_calendars` when a fix is released, or pin `pandas<4`. |
+| OI-16 | Indonesian number format (`1.234,5`) detection | Open | Currently has to be declared (`--decimal ,`), so it is never guessed. |
+| OI-17 | EODHD `volume` is split-adjusted, not raw | Open | Tagged on every payload (`volume_basis`). M1.3 must reverse it with split factors, or keep EODHD volume out of raw-volume features. |
+| OI-18 | EODHD has no traded value, trade frequency or foreign flow | Open | Those fields stay NULL for `eodhd` rows. Liquidity filters (OI-09) need them from manual IDX stock-summary imports or a paid IDX-specific vendor. |
+| OI-19 | Live test of EODHD JK data | Closed 2026-11-21 | Owner's free key: 5 tickers × 1 year = 1,195 bars, 0 rejected, 0 warnings. Every session in the calendar is present, every OHLC value sits on the IDX tick grid (confirms raw prices), and the call count matched EODHD's own usage counter (7). The owner should still compare a few closes with idx.co.id (e.g. BBCA 2026-11-20 close 5550). |
+| OI-20 | Scheduled EOD workflow | Open | No cloud database yet (Supabase sync is Phase 5), so for now schedule `idx ingest eodhd --universe` locally (Windows Task Scheduler or cron, after 17:30 WIB). Add a GitHub Actions workflow once the operational database exists. |
+| OI-21 | EODHD instrument types are unreliable | Open | Delisted warrants (`-W`) are labelled "Common Stock". Classify by ticker suffix and the IDX master, never by EODHD `Type` alone. |
+| OI-22 | EODHD volume for BBCA is often not a multiple of 100 | Watch | Scattered across the year, no matching price jump, so not a split adjustment. Probably odd-lot or negotiated-market volume is included. Treat EODHD volume as total volume of unknown composition. |
+| OI-23 | Listing dates are needed for universe eligibility | Open | Instruments without a listing history now have status `unknown` and are excluded from the BUY universe. Import the IDX company list (with listing dates) by hand to make them eligible. |

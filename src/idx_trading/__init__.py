@@ -1,0 +1,3 @@
+"""IDX AI Trading Intelligence — Phase 1 data foundation."""
+
+__version__ = "0.1.0"

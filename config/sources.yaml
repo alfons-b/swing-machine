@@ -1,0 +1,237 @@
+# Data Source Registry (PRD §6.2) — the reviewed, version-controlled source of truth.
+#
+# RULES
+#  * A source may be used for a purpose ONLY when that purpose is listed under
+#    `permissions` with status `approved`. Missing purpose == not permitted.
+#  * Every approval must cite evidence (terms URL / licence text) and a review date.
+#  * Never approve automated access for a source whose terms forbid it, and never
+#    bypass authentication, paywalls or rate limits (PRD §6.2).
+#  * Changes to this file are the audit trail: review them like code.
+#
+# Status of third-party sources below is `pending_review`: their terms have NOT yet
+# been verified (PRD §27 open issues #1, #3, #4). They are registered so that the
+# review work is tracked, but the ingestion framework will refuse to use them.
+
+sources:
+  - source_id: manual_csv
+    source_name: User-supplied CSV files (manual download / own records)
+    source_type: file
+    source_url: null
+    access_method: local_file
+    license_type: user_responsibility
+    terms_reference: docs/adr/0004-source-permission-gate.md
+    rate_limit: null
+    update_frequency: ad_hoc
+    reliability_score: 0.5
+    source_status: active
+    notes: >-
+      Files placed by the user. The user is responsible for confirming that the
+      originating provider permits personal storage and analysis of the file.
+      The original provider should be recorded in the import's `origin` field.
+    permissions:
+      - purpose: manual_import
+        status: approved
+        reviewed_at: 2026-11-21
+        reviewed_by: system-owner
+        evidence_url: docs/adr/0004-source-permission-gate.md
+        notes: Manual, user-initiated imports only.
+      - purpose: raw_archive
+        status: approved
+        reviewed_at: 2026-11-21
+        reviewed_by: system-owner
+        evidence_url: docs/adr/0004-source-permission-gate.md
+
+  - source_id: exchange_calendars_lib
+    source_name: exchange_calendars Python library (XIDX calendar)
+    source_type: library
+    source_url: https://github.com/gerrymanoim/exchange_calendars
+    access_method: python_package
+    license_type: Apache-2.0
+    terms_reference: https://github.com/gerrymanoim/exchange_calendars/blob/master/LICENSE
+    rate_limit: null
+    update_frequency: on_package_upgrade
+    reliability_score: 0.8
+    source_status: active
+    notes: >-
+      Community-maintained holiday rules. Sessions can be generated from 1990, but
+      rules before ~2006 look incomplete and must be checked against observed trading
+      days (OI-13). Holidays must be checked against official IDX announcements (OI-14).
+    permissions:
+      - purpose: automated_ingestion
+        status: approved
+        reviewed_at: 2026-11-21
+        reviewed_by: system-owner
+        evidence_url: https://github.com/gerrymanoim/exchange_calendars/blob/master/LICENSE
+        notes: Apache-2.0 package metadata verified at install time.
+
+  - source_id: idx_official
+    source_name: Bursa Efek Indonesia (idx.co.id)
+    source_type: exchange
+    source_url: https://www.idx.co.id
+    access_method: web
+    license_type: licensed_data_products
+    terms_reference: https://www.idx.id/en/products/idx-data-services
+    update_frequency: daily
+    source_status: pending_review
+    notes: >-
+      Reviewed 2026-11-21. Every request from automation, including robots.txt, gets a
+      Cloudflare "Attention Required" challenge (HTTP 403). Passing that challenge would
+      be bypassing an access restriction (PRD 6.2), so automated access is NOT allowed.
+      IDX sells historical/EOD data under the IDX Data Services licence (priced
+      catalogue). Manual browser downloads by the owner stay possible via `manual_csv`;
+      the website terms page itself could not be fetched and is still unreviewed.
+    permissions:
+      - purpose: automated_ingestion
+        status: denied
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: docs/adr/0008-eod-source-selection.md
+        notes: Bot challenge on all paths; data is sold as a licensed product.
+      - purpose: manual_import
+        status: pending_review
+
+  - source_id: ksei
+    source_name: Kustodian Sentral Efek Indonesia (ksei.co.id)
+    source_type: depository
+    source_url: https://www.ksei.co.id
+    access_method: web
+    license_type: unverified
+    update_frequency: daily
+    source_status: pending_review
+    notes: Candidate for corporate action calendar and ISIN data.
+    permissions:
+      - purpose: automated_ingestion
+        status: pending_review
+
+  - source_id: ojk
+    source_name: Otoritas Jasa Keuangan (ojk.go.id)
+    source_type: regulator
+    source_url: https://www.ojk.go.id
+    access_method: web
+    license_type: unverified
+    update_frequency: ad_hoc
+    source_status: pending_review
+    notes: Candidate for issuer registration and regulatory disclosures.
+    permissions:
+      - purpose: automated_ingestion
+        status: pending_review
+
+  - source_id: bank_indonesia
+    source_name: Bank Indonesia (bi.go.id)
+    source_type: central_bank
+    source_url: https://www.bi.go.id
+    access_method: web
+    license_type: unverified
+    update_frequency: daily
+    source_status: pending_review
+    notes: Post-MVP macro source (BI rate, JISDOR).
+    permissions:
+      - purpose: automated_ingestion
+        status: pending_review
+
+  - source_id: bps
+    source_name: Badan Pusat Statistik (bps.go.id)
+    source_type: statistics_agency
+    source_url: https://www.bps.go.id
+    access_method: api
+    license_type: unverified
+    update_frequency: monthly
+    source_status: pending_review
+    notes: Post-MVP macro source. Offers a registered web API; verify terms and quotas.
+    permissions:
+      - purpose: automated_ingestion
+        status: pending_review
+
+  - source_id: yahoo_finance
+    source_name: Yahoo Finance (.JK tickers)
+    source_type: market_data_api
+    source_url: https://finance.yahoo.com
+    access_method: unofficial_api
+    license_type: proprietary_terms
+    terms_reference: https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html
+    update_frequency: daily
+    reliability_score: 0.4
+    source_status: blocked
+    notes: >-
+      Reviewed 2026-11-21. The Yahoo Terms of Service prohibit to "access or collect data
+      ... using any automated means ... for any purpose without our express, prior
+      permission" and using any data "to create any database, archive". Both are exactly
+      what this system does, so Yahoo (and yfinance) must not be used.
+    permissions:
+      - purpose: automated_ingestion
+        status: denied
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html
+
+  - source_id: eodhd
+    source_name: EODHD (EOD Historical Data) — Jakarta exchange (JK)
+    source_type: market_data_api
+    source_url: https://eodhd.com
+    access_method: api
+    license_type: eodhd_non_professional
+    terms_reference: https://eodhd.com/financial-apis/terms-conditions
+    rate_limit: "Free: 20 calls/day, 1y history. Paid: 100k calls/day, 30y+, bulk. 1,000 req/min."
+    rate_limit_per_minute: 1000
+    update_frequency: daily
+    reliability_score: 0.7
+    source_status: active
+    notes: >-
+      Selected as the automated EOD source (ADR 0008). Terms: Non-Professional Users
+      "are permitted to store, manipulate, and analyze the data for private,
+      non-commercial purposes" but may not share the account or redistribute.
+      Data semantics: OHLC raw as traded; adjusted_close split+dividend adjusted;
+      volume split-adjusted (OI-17). No traded value, frequency or foreign flow.
+      Bulk (whole exchange, 100 calls) is not on the Free plan.
+    permissions:
+      - purpose: automated_ingestion
+        status: approved
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: https://eodhd.com/financial-apis/terms-conditions
+        notes: Private, non-commercial use by the single owner only (PRD 4.1).
+      - purpose: raw_archive
+        status: approved
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: https://eodhd.com/financial-apis/terms-conditions
+        notes: Storage is explicitly permitted for non-professional users.
+      - purpose: redistribution
+        status: denied
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: https://eodhd.com/financial-apis/terms-conditions
+
+  - source_id: twelve_data
+    source_name: Twelve Data
+    source_type: market_data_api
+    source_url: https://twelvedata.com
+    access_method: api
+    license_type: twelve_data_terms
+    terms_reference: https://twelvedata.com/terms
+    rate_limit: "Basic (free): 8 credits/min, 800/day"
+    update_frequency: daily
+    source_status: inactive
+    notes: >-
+      Reviewed 2026-11-21. Terms allow storing data for Internal Use, but the Indonesia
+      Stock Exchange page is marked "Pro+" (from USD 99/mo), so IDX is not on the free
+      Basic plan. Kept as a paid alternative.
+    permissions:
+      - purpose: automated_ingestion
+        status: pending_review
+
+  - source_id: invezgo
+    source_name: Invezgo API (Indonesia)
+    source_type: market_data_api
+    source_url: https://invezgo.com
+    access_method: api
+    license_type: unverified
+    update_frequency: daily
+    source_status: inactive
+    notes: >-
+      Reviewed 2026-11-21. Indonesian vendor with IDX-specific data (broker summary,
+      foreign flow, financial statements). API access starts at IDR 499,900/month: not
+      free. Terms not yet reviewed. Candidate for post-MVP enrichment.
+    permissions:
+      - purpose: automated_ingestion
+        status: pending_review
