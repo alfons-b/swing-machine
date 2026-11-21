@@ -169,3 +169,38 @@ def test_daily_routine_reports_degraded_without_token(tmp_path, monkeypatch):
     assert "ok backup" in " ".join(res.output.split())
     assert "ok restore test" in " ".join(res.output.split())  # first run always restore-tests
     get_settings.cache_clear()
+
+
+def test_restore_into_a_new_database(seeded, tmp_path):
+    from idx_trading.ops.backup import restore_backup
+
+    url = _db_url(seeded)
+    if url.startswith("postgresql"):
+        if not _pg_tools_ok(url):
+            pytest.skip("pg tools mismatch")
+        from sqlalchemy.engine import make_url
+
+        u = make_url(url)
+        target = u.set(database=f"{u.database}_target")
+        admin = make_engine(u.set(database="postgres").render_as_string(hide_password=False))
+        with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as c:
+            c.execute(text(f'DROP DATABASE IF EXISTS "{target.database}"'))
+            c.execute(text(f'CREATE DATABASE "{target.database}"'))
+        target_url = target.render_as_string(hide_password=False)
+    else:
+        target_url = f"sqlite:///{tmp_path / 'restored.db'}"
+    m = create_backup(url, tmp_path / "b")
+    restore_backup(m, tmp_path / "b", target_url)
+    with pytest.raises(RuntimeError, match=r"not empty|exists"):
+        restore_backup(m, tmp_path / "b", target_url)
+    restore_backup(m, tmp_path / "b", target_url, force=True)  # replace works
+    eng = make_engine(target_url)
+    try:
+        with eng.connect() as c:
+            assert c.execute(text("SELECT count(*) FROM instruments")).scalar() == 6
+    finally:
+        eng.dispose()
+    if url.startswith("postgresql"):
+        with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as c:
+            c.execute(text(f'DROP DATABASE IF EXISTS "{target.database}"'))
+        admin.dispose()

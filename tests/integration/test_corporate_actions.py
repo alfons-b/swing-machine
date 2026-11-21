@@ -407,3 +407,50 @@ def test_replay_separates_datasets_in_one_source_folder(env):
         )
         assert after == before
         assert FactorService(s).recompute().inserted == 2
+
+
+def test_manual_cancellation_removes_a_superseded_vendor_dividend(env, fake, tmp_path):
+    fake.dividends["BBCA.JK"].append(
+        {"date": "2026-11-12", "value": 50, "unadjustedValue": 50, "currency": "IDR"}
+    )  # stale duplicate from the vendor
+    env["eod"]()
+    env["ca"]()
+    with session_scope(env["factory"]) as s:
+        assert FactorService(s).recompute().inserted == 3
+    csv = tmp_path / "cancel.csv"
+    csv.write_text(
+        "ticker,action_type,ex_date,cash_amount,currency,status,notes\n"
+        "BBCA,cash_dividend,2026-11-12,50,IDR,cancelled,superseded schedule\n"
+    )
+    CorporateActionPipeline(env["factory"], RawArchive(env["root"]), today=TODAY).run(
+        CsvCorporateActionAdapter(), FetchRequest(paths=(str(csv),))
+    )
+    with session_scope(env["factory"]) as s:
+        r = FactorService(s).recompute()
+        assert (r.cancelled, r.retired) == (1, 1)
+        live = s.scalars(
+            select(PriceAdjustmentFactor.ex_date).where(PriceAdjustmentFactor.is_current.is_(True))
+        ).all()
+        assert sorted(live) == [D(2026, 11, 11), D(2026, 11, 17)]
+
+
+def test_acknowledged_reconciliation_exception(env, fake, tmp_path):
+    from idx_trading.corporate_actions.reconcile import load_exceptions
+
+    fake.dividends["BBCA.JK"] = []  # our data lacks the dividend -> vendor check fails
+    env["eod"]()
+    env["ca"]()
+    path = tmp_path / "ex.yaml"
+    path.write_text(
+        "exceptions:\n  - check: vendor_adjusted_close\n    ticker: BBCA\n"
+        "    reason: known vendor issue\n    evidence: test\n    reviewed_at: 2026-11-21\n"
+    )
+    with session_scope(env["factory"]) as s:
+        FactorService(s).recompute()
+        rep = reconcile_vendor_adjusted_close(
+            s, RawArchive(env["root"]), [env["bbca"]], exceptions=load_exceptions(path)
+        )
+        assert (rep.failed, rep.warned) == (0, 1)
+    path.write_text("exceptions:\n  - check: vendor_adjusted_close\n    ticker: BBCA\n    reason: x\n")
+    with pytest.raises(ValueError, match="evidence"):
+        load_exceptions(path)

@@ -222,3 +222,27 @@ def test_adapter_crash_records_failed_run_and_rolls_back(seeded, pipe):
 def test_empty_payload_is_failed(seeded, pipe):
     r = pipe.run(MemoryAdapter(HEADER), FetchRequest())
     assert r.status == RunStatus.FAILED and r.error == "adapter returned no records"
+
+
+def test_vendor_filler_dropped_and_revalidation_marks_fractional(seeded, pipe):
+    from idx_trading.ingestion.revalidate import revalidate_prices
+
+    # 2026-11-21 is a Saturday: a zero-volume filler is dropped, not reported as an error.
+    r = pipe.run(
+        MemoryAdapter(
+            HEADER + "BBCA,2026-11-20,100,110,95,105,1000,102000\nBBCA,2026-11-21,105,105,105,105,0,0\n"
+        ),
+        FetchRequest(),
+    )
+    assert r.status == RunStatus.SUCCEEDED and r.counts["dropped"] == 1 and r.counts["rejected"] == 0
+    with session_scope(seeded) as s:
+        assert s.scalar(select(func.count()).select_from(DataQualityIssue)) == 0
+        # Simulate a bar stored before the whole-rupiah rule existed.
+        row = s.scalar(select(DailyPrice))
+        row.close = Decimal("105.5")
+    with session_scope(seeded) as s:
+        rep = revalidate_prices(s, "test_feed")
+        assert (rep.checked, rep.now_invalid) == (1, 1) and rep.by_rule == {"price_not_integer": 1}
+        assert s.scalar(select(DailyPrice.validation_status)) == "invalid"
+    with session_scope(seeded) as s:
+        assert revalidate_prices(s, "test_feed").checked == 0  # invalid rows are not re-checked

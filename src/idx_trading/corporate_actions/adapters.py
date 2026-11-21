@@ -211,6 +211,8 @@ CSV_COLUMNS = (
     "announcement_date",
     "record_date",
     "payment_date",
+    "status",
+    "notes",
 )
 
 

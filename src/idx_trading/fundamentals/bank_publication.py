@@ -48,7 +48,8 @@ _ENUM = re.compile(r"^\s*(?:\d{1,2}\.|[a-z]\.|[ivx]+\.)\s*", re.I)
 def _norm(label: str) -> str:
     s = _ENUM.sub("", label).lower()
     s = re.sub(r"\s+", " ", s).strip()
-    return s
+    # Interim reports say "periode berjalan" where annual ones say "tahun berjalan".
+    return s.replace("periode berjalan", "tahun berjalan")
 
 
 # normalized label -> (concept, statement, consolidated_only, scale)
@@ -116,6 +117,8 @@ class ParsedPublication:
     audited: bool | None
     facts: list[ParsedFact] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    currency: str = "IDR"
+    document_type: str = "bank_publication_quarterly"
 
     def get(self, concept: str, basis: str, period_end: date) -> Decimal | None:
         for f in self.facts:

@@ -140,3 +140,11 @@ def test_pdf_pages_reads_real_pdf_and_rejects_garbage():
     assert pdf_pages(buf.getvalue()) == ["", ""]
     with pytest.raises(ValueError, match="unreadable PDF"):
         pdf_pages(b"%PDF-1.7 this is not really a pdf")
+
+
+def test_interim_label_variant_periode_berjalan():
+    p = pages()
+    p[1] = p[1].replace("TAHUN BERJALAN", "PERIODE BERJALAN").replace("Tahun Berjalan", "Periode Berjalan")
+    r = parse_publication(p)
+    assert r.errors == [] and check_identities(r) == []
+    assert r.get("net_income_parent", "consolidated", date(2026, 3, 31)) == Dec(9_990 * M)

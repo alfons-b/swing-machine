@@ -23,6 +23,14 @@ CONCEPTS: dict[str, Concept] = {
     c.name: c
     for c in (
         Concept("total_assets", Kind.INSTANT, "IDR", "Total assets"),
+        Concept("current_assets", Kind.INSTANT, "IDR", "Total current assets"),
+        Concept("current_liabilities", Kind.INSTANT, "IDR", "Total current liabilities"),
+        Concept("cash", Kind.INSTANT, "IDR", "Cash and cash equivalents"),
+        Concept("equity_parent", Kind.INSTANT, "IDR", "Equity attributable to owners of the parent"),
+        Concept("equity_nci", Kind.INSTANT, "IDR", "Non-controlling interests in equity"),
+        Concept("shares_issued", Kind.INSTANT, "shares", "Issued and fully paid ordinary shares (caption)"),
+        Concept("revenue", Kind.DURATION, "IDR", "Revenue / net sales"),
+        Concept("gross_profit", Kind.DURATION, "IDR", "Gross profit"),
         Concept("loans", Kind.INSTANT, "IDR", "Loans and financing extended (gross of allowance)"),
         Concept("deposits_current", Kind.INSTANT, "IDR", "Current accounts (giro)"),
         Concept("deposits_savings", Kind.INSTANT, "IDR", "Savings accounts (tabungan)"),

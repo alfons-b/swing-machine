@@ -1,0 +1,2 @@
+ticker,action_type,ex_date,cash_amount,currency,status,notes
+UNTR,cash_dividend,2026-10-07,430,IDR,cancelled,"Superseded schedule: UNTR corrected the interim dividend timetable on 2026-10-28 (ex-date 2026-11-06). EODHD keeps both entries. Sources: investasi.kontan.co.id 'united-tractors-untr-bagikan-dividen-interim-rp-148-triliun-simak-jadwalnya'; pasardana.id 2026-10-28."

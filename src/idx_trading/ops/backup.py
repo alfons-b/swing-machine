@@ -358,3 +358,46 @@ def backup_status(
         reasons.append(f"latest restore test failed ({verified[-1][1]})")
     state = "healthy" if not reasons else ("failed" if not good else "degraded")
     return BackupStatus(state, reasons, latest.backup_id, good[-1][1] if good else None)
+
+
+def restore_backup(manifest: Manifest, backup_dir: Path, target_url: str, *, force: bool = False) -> None:
+    """Restore a backup into `target_url` (e.g. on a new machine).
+
+    The target must be empty unless `force` (then existing objects are replaced).
+    Row counts are compared with the manifest afterwards; a mismatch raises.
+    """
+    path = backup_dir / manifest.file
+    if not path.exists() or _sha256(path) != manifest.sha256:
+        raise RuntimeError(f"{path.name}: missing or checksum mismatch")
+    url = make_url(target_url)
+    if manifest.kind == "postgres":
+        if url.get_backend_name() != "postgresql":
+            raise RuntimeError("a PostgreSQL backup needs a PostgreSQL target")
+        eng = create_engine(url)
+        try:
+            with eng.connect() as c:
+                _require_matching_tools(c, "pg_restore")
+                tables = inspect(c).get_table_names()
+        finally:
+            eng.dispose()
+        if tables and not force:
+            raise RuntimeError(f"target database is not empty ({len(tables)} tables); use --force to replace")
+        cmd = ["pg_restore", "--no-owner", "--no-privileges", "--exit-on-error", "-d", url.database or ""]
+        if tables:
+            cmd[1:1] = ["--clean", "--if-exists"]
+        _run([*cmd, str(path)], _pg_env(url))
+    else:
+        dest = Path(url.database or "")
+        if dest.exists() and not force:
+            raise RuntimeError(f"{dest} exists; use --force to replace")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, dest)
+    eng = create_engine(url)
+    try:
+        with eng.connect() as c:
+            counts = _counts(c)
+    finally:
+        eng.dispose()
+    bad = {t: [n, counts.get(t, -1)] for t, n in manifest.row_counts.items() if counts.get(t, -1) != n}
+    if bad:
+        raise RuntimeError(f"restored row counts differ from the manifest: {bad}")

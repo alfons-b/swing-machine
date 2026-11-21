@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -85,6 +86,21 @@ def _latest_vendor_file(session: Session, ticker: str) -> tuple[RawArtifact, dat
     return art, fetch.retrieved_at.date()
 
 
+def load_exceptions(path: Path) -> dict[tuple[str, str], str]:
+    """(check, ticker) -> reason, from config/reconciliation_exceptions.yaml."""
+    import yaml
+
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    out: dict[tuple[str, str], str] = {}
+    for e in data.get("exceptions", []):
+        if not (e.get("reason") and e.get("evidence") and e.get("reviewed_at")):
+            raise ValueError(f"reconciliation exception needs reason, evidence, reviewed_at: {e}")
+        out[(str(e["check"]), str(e["ticker"]).upper())] = str(e["reason"]).strip()
+    return out
+
+
 def reconcile_vendor_adjusted_close(
     session: Session,
     archive: RawArchive,
@@ -92,6 +108,7 @@ def reconcile_vendor_adjusted_close(
     *,
     tolerance: Decimal = VENDOR_TOLERANCE,
     batch_id: str | None = None,
+    exceptions: dict[tuple[str, str], str] | None = None,
 ) -> ReconReport:
     report = ReconReport(batch_id or str(uuid.uuid4()))
     svc = InstrumentService(session)
@@ -108,15 +125,36 @@ def reconcile_vendor_adjusted_close(
             report.skipped.append(f"{ticker or iid}: no archived EODHD EOD file")
             continue
         art, as_of = found
+        # Without our own dividend/split lists the vendor's adjustment cannot be
+        # reproduced, so a mismatch would say nothing about our method: skip.
+        checked = {
+            f.kind
+            for f in session.scalars(
+                select(ArtifactFetch).where(
+                    ArtifactFetch.source_id == "eodhd",
+                    ArtifactFetch.ticker == ticker,
+                    ArtifactFetch.kind.in_(("dividends", "splits")),
+                )
+            )
+            if (f.extra or {}).get("http_status", 200) == 200
+        }
+        if checked != {"dividends", "splits"}:
+            report.skipped.append(f"{ticker}: corporate actions not fetched yet")
+            continue
         assert art.storage_path is not None
         rows = json.loads(archive.read(art.storage_path))
         factors = _factors(session, iid, None)
         worst = Decimal(0)
         bad: list[dict[str, str]] = []
         n = 0
+        cal = CalendarService(session)
         for r in rows:
             close, adj = r.get("close"), r.get("adjusted_close")
             if not close or adj is None:
+                continue
+            day = date.fromisoformat(r["date"])
+            # Vendor filler bars on exchange holidays (OI-33) are not data: skip them.
+            if cal.is_known(day) and not cal.is_trading_day(day):
                 continue
             n += 1
             t = date.fromisoformat(r["date"])
@@ -133,6 +171,10 @@ def reconcile_vendor_adjusted_close(
             if worst <= tolerance * 5
             else ReconciliationStatus.FAIL
         )
+        acknowledged = (exceptions or {}).get(("vendor_adjusted_close", ticker or ""))
+        if status == ReconciliationStatus.FAIL and acknowledged:
+            status = ReconciliationStatus.WARN
+            bad.insert(0, {"acknowledged": acknowledged})
         report.count(status)
         session.add(
             ReconciliationResult(

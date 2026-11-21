@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from idx_trading.corporate_actions.adjusted import Adjustment, adjusted_bars
 from idx_trading.db.enums import AdjustmentType
-from idx_trading.db.models import Instrument, PriceAdjustmentFactor
+from idx_trading.db.models import FinancialReport, Instrument, PriceAdjustmentFactor
 from idx_trading.fundamentals.pit import fact_as_of, latest_period, same_day_last_year, ttm
 
 
@@ -98,7 +98,18 @@ def compute_ratios(s: Session, instrument_id: int, as_of: date) -> Ratios:
         r.notes.append("no financial report available on this date")
         return r
     r.period_end = p
+    age = (as_of - p).days
+    if age > 200:  # a newer quarter should normally have been published by now
+        r.notes.append(f"latest report is {age} days old (period end {p}): ratios may be stale")
     p_ly = same_day_last_year(p)
+    ccy = s.scalar(
+        select(FinancialReport.currency)
+        .where(FinancialReport.issuer_id == issuer, FinancialReport.period_end == p)
+        .order_by(FinancialReport.revision_id.desc())
+        .limit(1)
+    )
+    if ccy and ccy != "IDR":
+        r.notes.append(f"statements in {ccy}: price-based ratios need FX conversion (not done)")
 
     def inst_val(concept: str, end: date) -> Decimal | None:
         f = fact_as_of(s, issuer, concept, end, as_of)
@@ -109,6 +120,8 @@ def compute_ratios(s: Session, instrument_id: int, as_of: date) -> Ratios:
     with localcontext() as ctx:
         ctx.prec = 34
         bars = adjusted_bars(s, instrument_id, Adjustment.RAW, end=as_of)
+        if ccy and ccy != "IDR":
+            bars = []
         if bars and bars[-1].close is not None:
             r.price, r.price_date = bars[-1].close, bars[-1].trade_date
         else:
@@ -131,20 +144,29 @@ def compute_ratios(s: Session, instrument_id: int, as_of: date) -> Ratios:
                     r.notes.append("PER undefined: non-positive EPS TTM")
 
         ni_ytd, eps_ytd = inst_val("net_income_parent", p), inst_val("eps_basic", p)
-        equity, assets = inst_val("total_equity", p), inst_val("total_assets", p)
-        if ni_ytd and eps_ytd and eps_ytd > 0 and ni_ytd > 0:
+        assets = inst_val("total_assets", p)
+        equity_parent = inst_val("equity_parent", p)
+        equity = equity_parent if equity_parent is not None else inst_val("total_equity", p)
+        if equity_parent is None:
+            r.notes.append("BVPS/ROE use total equity (parent equity not reported)")
+        shares = inst_val("shares_issued", p)
+        if shares:
+            r.shares_implied = shares / split  # reported issued shares, not implied
+            r.shares_rel_uncertainty = Decimal(0)
+        elif ni_ytd and eps_ytd and eps_ytd > 0 and ni_ytd > 0:
             r.shares_implied = ni_ytd / eps_ytd / split
-            r.shares_rel_uncertainty = Decimal("0.5") / eps_ytd  # EPS printed to Rp 1
-            if equity is not None:
-                r.bvps = equity / r.shares_implied
-                if r.price is not None and r.bvps > 0:
-                    r.pbv = r.price / r.bvps
+            r.shares_rel_uncertainty = Decimal("0.5") / eps_ytd  # EPS printed rounded
         else:
             r.notes.append("shares outstanding not derivable (needs positive YTD profit and EPS)")
+        if r.shares_implied and equity is not None:
+            r.bvps = equity / r.shares_implied
+            if r.price is not None and r.bvps > 0:
+                r.pbv = r.price / r.bvps
 
         ni_parent_ttm = ttm(s, issuer, "net_income_parent", p, as_of)
         ni_ttm = ttm(s, issuer, "net_income", p, as_of)
-        eq_ly, as_ly = inst_val("total_equity", p_ly), inst_val("total_assets", p_ly)
+        eq_ly = inst_val("equity_parent" if equity_parent is not None else "total_equity", p_ly)
+        as_ly = inst_val("total_assets", p_ly)
         if ni_parent_ttm and equity is not None:
             avg = (equity + eq_ly) / 2 if eq_ly is not None else equity
             if eq_ly is None:

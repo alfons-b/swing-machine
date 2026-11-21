@@ -255,17 +255,17 @@ sources:
       site's terms page lists only product terms (KlikBCA, cards, ...) and no website or
       content terms; robots.txt does not disallow the report paths; the file host
       pustaka.bca.co.id has no robots.txt. Use is private analysis of published
-      figures, no redistribution. Automated download is on hold (see permission note).
+      figures, no redistribution. Automated download approved by the owner (OI-30).
     permissions:
       - purpose: automated_ingestion
-        status: pending_review
+        status: approved
         reviewed_at: 2026-11-21
-        reviewed_by: claude-agent (delegated by system owner)
+        reviewed_by: system owner (decision in session, 2026-11-21)
         evidence_url: docs/adr/0010-point-in-time-fundamentals.md
         notes: >-
-          Held: the site's firewall answers HTTP 403 to clients identifying as python-urllib
-          (honest custom identities got 200). Changing the client identity only to pass that
-          filter would be evading an access control, so this waits for the owner's decision.
+          The firewall rejects clients identifying as python-urllib. The owner approved the
+          honest identity "idx-trading/<version> (personal research)" (no browser
+          imitation). Quarterly publication reports only; 1 request / 2 s; new files only.
       - purpose: raw_archive
         status: approved
         reviewed_at: 2026-11-21

@@ -54,6 +54,9 @@ def _db() -> Iterator[Session]:
         engine.dispose()
 
 
+PRIORITY_FILE = Path(__file__).resolve().parents[3] / "config" / "priority_tickers.txt"
+
+
 @contextmanager
 def _factory() -> Iterator[sessionmaker[Session]]:
     engine = make_engine()
@@ -280,7 +283,7 @@ def ingest_eodhd(
     from idx_trading.clock import now_utc
     from idx_trading.ingestion.adapters.eodhd import EodhdEodAdapter, TickerWindow
     from idx_trading.ingestion.archive import RawArchive
-    from idx_trading.ingestion.coverage import plan_refresh
+    from idx_trading.ingestion.coverage import plan_refresh, read_priority
     from idx_trading.ingestion.pipeline import EodIngestionPipeline
     from idx_trading.ingestion.schemas import FetchRequest
     from idx_trading.ingestion.writer import RevisionPolicy
@@ -315,7 +318,9 @@ def ingest_eodhd(
                 members.append((t.upper(), iid))
         cap = budget or st.eodhd_daily_call_budget
         history_start = target - timedelta(days=st.eodhd_history_days - 1)
-        plan = plan_refresh(s, "eodhd", members, target, cap, history_start)
+        plan = plan_refresh(
+            s, "eodhd", members, target, cap, history_start, priority=read_priority(PRIORITY_FILE)
+        )
     up_to_date = len(members) - len(plan)
     typer.echo(f"target={target} candidates={len(members)} planned={len(plan)} budget={cap}")
     for item in plan:
@@ -549,7 +554,12 @@ def ca_fetch_eodhd(
             if f.ticker and (f.extra or {}).get("http_status", 200) == 200:
                 last[f.ticker] = max(last.get(f.ticker, f.retrieved_at), f.retrieved_at)
     cap = budget or st.eodhd_daily_call_budget
-    order = sorted(members, key=lambda m: (m[0] in last, str(last.get(m[0], "")), m[0]))
+    from idx_trading.ingestion.coverage import read_priority
+
+    rank = {t: k for k, t in enumerate(read_priority(PRIORITY_FILE))}
+    order = sorted(
+        members, key=lambda m: (m[0] in last, str(last.get(m[0], "")), rank.get(m[0], len(rank)), m[0])
+    )
     plan = order[: cap // 2]
     start = today - timedelta(days=st.eodhd_history_days - 1)
     typer.echo(f"candidates={len(members)} planned={len(plan)} calls={2 * len(plan)} budget={cap}")
@@ -615,7 +625,8 @@ def ca_factors() -> None:
         r = FactorService(s, get_settings().calendar_code).recompute()
     typer.echo(
         f"inserted={r.inserted} unchanged={r.unchanged} superseded={r.superseded} "
-        f"retired={r.retired} duplicates_skipped={r.skipped_duplicates} unresolved={len(r.unresolved)}"
+        f"retired={r.retired} duplicates_skipped={r.skipped_duplicates} cancelled={r.cancelled} "
+        f"unresolved={len(r.unresolved)}"
     )
     for u in r.unresolved:
         typer.echo(f"  UNRESOLVED {u}")
@@ -632,6 +643,7 @@ def ca_reconcile(
     from idx_trading.clock import exchange_today
     from idx_trading.corporate_actions.reconcile import (
         check_split_price_consistency,
+        load_exceptions,
         reconcile_vendor_adjusted_close,
     )
     from idx_trading.db.models import ReconciliationResult
@@ -640,7 +652,8 @@ def ca_reconcile(
     st = get_settings()
     with _db() as s:
         ids = [iid for _, iid in _resolve_members(s, tickers, universe, exchange_today())]
-        v = reconcile_vendor_adjusted_close(s, RawArchive(st.raw_archive_dir), ids)
+        exceptions = load_exceptions(PRIORITY_FILE.parent / "reconciliation_exceptions.yaml")
+        v = reconcile_vendor_adjusted_close(s, RawArchive(st.raw_archive_dir), ids, exceptions=exceptions)
         sp = check_split_price_consistency(s, ids, calendar_code=st.calendar_code, batch_id=v.batch_id)
         rows = list(
             s.scalars(select(ReconciliationResult).where(ReconciliationResult.batch_id == v.batch_id))
@@ -768,7 +781,7 @@ def fin_fetch_bca(
     limit: Annotated[int, typer.Option(help="Max new PDFs to download this run")] = 8,
 ) -> None:
     """Download new BCA quarterly publication reports from its IR page and parse them."""
-    from idx_trading.db.models import ArtifactFetch
+    from idx_trading.db.models import ArtifactFetch, FinancialReport, RawArtifact
     from idx_trading.fundamentals.adapters import BcaIrAdapter
     from idx_trading.fundamentals.pipeline import FinancialReportPipeline
     from idx_trading.ingestion.archive import RawArchive
@@ -777,14 +790,18 @@ def fin_fetch_bca(
 
     st = get_settings()
     with _db() as s:
-        done = {
-            f.origin
-            for f in s.scalars(
-                select(ArtifactFetch).where(
-                    ArtifactFetch.source_id == "bca_ir", ArtifactFetch.kind == "bank_publication_quarterly"
-                )
+        # Skip only files that produced a stored report: rejected ones are retried
+        # (e.g. after a parser fix), unchanged ones cost nothing to re-check.
+        stored = select(RawArtifact.sha256).join(
+            FinancialReport, FinancialReport.artifact_id == RawArtifact.artifact_id
+        )
+        done = set(
+            s.scalars(
+                select(ArtifactFetch.origin)
+                .join(RawArtifact, RawArtifact.artifact_id == ArtifactFetch.artifact_id)
+                .where(ArtifactFetch.source_id == "bca_ir", RawArtifact.sha256.in_(stored))
             )
-        }
+        )
     client = HttpClient(min_interval_seconds=2.0)  # polite: self-imposed limit (ADR 0010)
     req = FetchRequest(options={"skip_urls": sorted(o for o in done if o), "limit": limit})
     try:
@@ -810,6 +827,9 @@ def fin_import_pdf(
     date_from_filename: Annotated[
         bool, typer.Option(help="The publication date is the file name's date prefix")
     ] = False,
+    date_from_press: Annotated[
+        bool, typer.Option(help="The publication date is the earliest press report of the figures")
+    ] = False,
 ) -> None:
     """Import a bank publication report PDF you saved yourself."""
     from idx_trading.fundamentals.adapters import ManualPublicationAdapter
@@ -824,7 +844,13 @@ def fin_import_pdf(
             "ticker": ticker,
             "published_on": published_on,
             "origin_url": origin_url,
-            "published_at_basis": "filename_date" if date_from_filename else "stated_by_owner",
+            "published_at_basis": (
+                "filename_date"
+                if date_from_filename
+                else "press_report_date"
+                if date_from_press
+                else "stated_by_owner"
+            ),
         },
     )
     try:
@@ -867,7 +893,8 @@ def fin_show(
         for name, c in CONCEPTS.items():
             f = fact_as_of(s, inst.issuer_id, name, p, d, basis)
             if f is not None:
-                typer.echo(f"  {name:30} {f.value:>28,.0f} {c.unit:10} report {f.report_id}")
+                fmt = f"{f.value:>28,.2f}" if "/share" in c.unit else f"{f.value:>28,.0f}"
+                typer.echo(f"  {name:30} {fmt} {c.unit:10} report {f.report_id}")
 
 
 @fin_app.command("ratios")
@@ -903,6 +930,16 @@ def fin_ratios(
         typer.echo(f"  {k:16} {shown}")
     for n in r.notes:
         typer.echo(f"  note: {n}")
+
+
+@ingest_app.command("revalidate")
+def ingest_revalidate(source: str = "eodhd") -> None:
+    """Apply the current bar rules to stored bars (status only; values never change)."""
+    from idx_trading.ingestion.revalidate import revalidate_prices
+
+    with _db() as s:
+        r = revalidate_prices(s, source, get_settings().calendar_code)
+    typer.echo(f"checked={r.checked} now_invalid={r.now_invalid} now_warning={r.now_warning} {r.by_rule}")
 
 
 @ingest_app.command("reconcile")
@@ -963,6 +1000,29 @@ def backup_verify(
         typer.echo(f"  error: {r.error}")
     if not r.ok:
         raise typer.Exit(code=2)
+
+
+@backup_app.command("restore")
+def backup_restore(
+    backup_id: Annotated[str | None, typer.Argument(help="Default: the newest in --dir")] = None,
+    directory: Annotated[Path | None, typer.Option("--dir", help="Folder with dumps + manifests")] = None,
+    force: Annotated[bool, typer.Option(help="Replace a non-empty target database")] = False,
+) -> None:
+    """Restore a backup into IDX_DATABASE_URL (e.g. the data package on a new machine)."""
+    from idx_trading.ops.backup import load_manifests, restore_backup
+
+    st = get_settings()
+    d = directory or st.backup_dir
+    ms = load_manifests(d) if d.exists() else []
+    m = next((x for x in ms if x.backup_id == backup_id), None) if backup_id else (ms[-1] if ms else None)
+    if m is None:
+        _fail(IdxTradingError(f"no backup found in {d}"))
+    assert m is not None
+    try:
+        restore_backup(m, d, st.database_url, force=force)
+    except (RuntimeError, OSError) as exc:
+        _fail(IdxTradingError(str(exc)))
+    typer.echo(f"restored {m.backup_id}: {sum(m.row_counts.values()):,} rows, revision {m.alembic_revision}")
 
 
 @backup_app.command("prune")
@@ -1096,6 +1156,74 @@ def daily(
     for name, status, detail in results:
         typer.echo(f"  {status:8} {name:28} {detail}")
     raise typer.Exit(code={"healthy": 0, "degraded": 1, "failed": 2}[worst])
+
+
+@inst_app.command("import-eodhd")
+def instruments_import_eodhd() -> None:
+    """Add EODHD's active JK common stocks missing from the master (1 API call).
+
+    Listing dates are NOT invented: new instruments get an unknown listing history
+    (status `unknown`), so their data is collected but they are not BUY-eligible
+    until the IDX company list (with listing dates) is imported (OI-23).
+    """
+    from idx_trading.clock import exchange_today
+    from idx_trading.db.enums import InstrumentType
+    from idx_trading.db.models import Instrument
+    from idx_trading.errors import TickerHistoryConflictError
+    from idx_trading.ingestion.adapters.eodhd import fetch_symbol_list
+    from idx_trading.instruments import InstrumentService, normalize_ticker
+    from idx_trading.registry import require_permission
+
+    st, token, client, budget = _eodhd_parts(1)
+    with _db() as s:
+        require_permission(s, "eodhd", PermissionPurpose.AUTOMATED_INGESTION)
+    try:
+        rows = fetch_symbol_list(
+            token, client, budget, exchange=st.eodhd_exchange, base_url=st.eodhd_base_url
+        )
+    except IdxTradingError as exc:
+        _fail(exc)
+    created = known = skipped = 0
+    notes: list[str] = []
+    with _db() as s:
+        svc = InstrumentService(s)
+        today = exchange_today()
+        for r in rows:
+            if (r.Type or "").lower() != "common stock":
+                skipped += 1
+                continue
+            try:
+                ticker = normalize_ticker(r.Code)
+            except ValueError:
+                skipped += 1
+                continue
+            if svc.try_resolve(ticker, today) is not None:
+                known += 1
+                continue
+            isin = (r.Isin or "").upper() or None
+            if isin and s.query(Instrument).filter_by(isin=isin).one_or_none() is not None:
+                notes.append(f"{ticker}: ISIN {isin} already belongs to another instrument; skipped")
+                skipped += 1
+                continue
+            try:
+                svc.create_instrument(
+                    ticker=ticker,
+                    issuer_name=r.Name or ticker,
+                    instrument_type=InstrumentType.COMMON_STOCK,
+                    listing_date=None,
+                    isin=isin,
+                    source_id="eodhd",
+                )
+                created += 1
+            except TickerHistoryConflictError as exc:
+                notes.append(f"{ticker}: {exc}")
+                skipped += 1
+    typer.echo(
+        f"EODHD rows={len(rows)} created={created} already_known={known} skipped={skipped} "
+        f"calls={budget.used}"
+    )
+    for n in notes[:20]:
+        typer.echo(f"  {n}")
 
 
 @sources_app.command("check")

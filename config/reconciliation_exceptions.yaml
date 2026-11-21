@@ -1,0 +1,13 @@
+# Known, explained reconciliation differences. Listed checks report "warn" with the
+# reason instead of "fail". Every entry needs evidence and a review date; remove it once
+# the vendor fixes the data.
+exceptions:
+  - check: vendor_adjusted_close
+    ticker: UNTR
+    reason: >-
+      EODHD applies the Rp 430 interim dividend twice (superseded ex 2026-10-07 plus the
+      corrected one with ex shifted to 2026-11-02). Official ex-date is 2026-11-06 after
+      UNTR's 2026-10-28 correction; our data cancels the superseded entry
+      (config/corporate_action_overrides.csv).
+    evidence: investasi.kontan.co.id (UNTR interim dividend schedule correction); pasardana.id 2026-10-28
+    reviewed_at: 2026-11-21

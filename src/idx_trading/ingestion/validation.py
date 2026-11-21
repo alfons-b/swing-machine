@@ -35,6 +35,9 @@ class Rule:
     NO_TRADE = "no_trade"
     PARSE_ERROR = "parse_error"
     REVISION_CONFLICT = "revision_conflict"
+    PRICE_NOT_INTEGER = "price_not_integer"
+    OFF_TICK = "off_tick"
+    VENDOR_FILLER = "vendor_holiday_filler"
     STALE_DATA = "stale_data"
     MISSING_OBSERVATIONS = "missing_observations"
 
@@ -57,6 +60,7 @@ class BarContext:
     is_trading_day: bool | None  # None = calendar has no entry
     reference_close: Decimal | None  # bar.prev_close, or previous stored close
     extreme_move_threshold: float
+    currency: str = "IDR"
 
 
 def status_of(findings: list[Finding]) -> ValidationStatus:
@@ -202,7 +206,32 @@ def _trading_day(bar: EodBar, ctx: BarContext) -> list[Finding]:
     if ctx.is_trading_day is None:
         return [Finding(Rule.CALENDAR_UNKNOWN, Severity.WARNING, "date not in trading calendar")]
     if not ctx.is_trading_day:
+        if not bar.volume:
+            # Vendors fill exchange holidays with zero-volume bars (EODHD: flat at the
+            # previous close, sometimes 999999.9999). Not a session: dropped, not an error.
+            return [Finding(Rule.VENDOR_FILLER, Severity.INFO, "zero-volume bar on a non-session; dropped")]
         return [Finding(Rule.NOT_TRADING_DAY, Severity.ERROR, "date is not an IDX session")]
+    return []
+
+
+def idx_tick(price: Decimal) -> int:
+    """Current IDX price fraction for the regular market."""
+    return 1 if price < 200 else 2 if price < 500 else 5 if price < 2000 else 10 if price < 5000 else 25
+
+
+def _whole_rupiah(bar: EodBar, ctx: BarContext) -> list[Finding]:
+    """IDX trades in whole rupiah: a fractional raw price is not a raw price."""
+    if ctx.currency != "IDR":
+        return []
+    bad = {
+        k: str(v)
+        for k in ("open", "high", "low", "close")
+        if (v := getattr(bar, k)) is not None and v != v.to_integral_value()
+    }
+    if bad:
+        return [Finding(Rule.PRICE_NOT_INTEGER, Severity.ERROR, "fractional IDR price (not raw)", bad)]
+    if bar.close is not None and bar.close > 0 and bar.close % idx_tick(bar.close) != 0:
+        return [Finding(Rule.OFF_TICK, Severity.WARNING, f"close {bar.close} is off the current tick grid")]
     return []
 
 
@@ -232,6 +261,7 @@ BAR_RULES: tuple[Callable[[EodBar, BarContext], list[Finding]], ...] = (
     _not_future,
     _known_instrument,
     _trading_day,
+    _whole_rupiah,
     _extreme_move,
 )
 

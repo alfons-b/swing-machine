@@ -116,3 +116,24 @@ def test_dedupe_batch():
     survivors, findings = dedupe_batch([a, b_diff, bar(ticker="TLKM")])
     assert [s.ticker for s in survivors] == ["TLKM"]
     assert findings[a.key][0].rule_code == Rule.DUPLICATE_CONFLICT
+
+
+def test_whole_rupiah_and_tick_grid():
+    f = validate_bar(bar(close=Decimal("105.5")), ctx())
+    assert Rule.PRICE_NOT_INTEGER in {x.rule_code for x in f} and status_of(f) == ValidationStatus.INVALID
+    sentinel = bar(high=Decimal("999999.9999"), close=Decimal("999999.9999"))
+    assert Rule.PRICE_NOT_INTEGER in codes(sentinel, ctx(reference_close=None))
+    # 2,003 is off the grid (tick 5 for 500-2,000? no: 2,003 >= 2,000 -> tick 10)
+    off = bar(open=2000, high=2010, low=1995, close=2003, value=2_003_000)
+    assert [x.rule_code for x in validate_bar(off, ctx(reference_close=None))] == [Rule.OFF_TICK]
+    usd = bar(close=Decimal("105.5"))
+    assert Rule.PRICE_NOT_INTEGER not in codes(usd, ctx(currency="USD"))
+
+
+def test_vendor_holiday_filler_is_info_not_error():
+    filler = bar(open=100, high=100, low=100, close=100, volume=0, value=0)
+    f = validate_bar(filler, ctx(is_trading_day=False))
+    assert Rule.VENDOR_FILLER in {x.rule_code for x in f}
+    assert Rule.NOT_TRADING_DAY not in {x.rule_code for x in f}
+    traded = validate_bar(bar(), ctx(is_trading_day=False))
+    assert Rule.NOT_TRADING_DAY in {x.rule_code for x in traded}

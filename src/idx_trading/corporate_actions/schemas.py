@@ -59,6 +59,18 @@ class CorporateActionRecord(BaseModel):
     cash_amount: Decimal | None = None
     exercise_price: Decimal | None = None
     currency: str = "IDR"
+    #: "reported" (default) or "cancelled": a manual "cancelled" row overrides a vendor
+    #: row of the same family and ex-date, e.g. a superseded dividend schedule.
+    status: str = "reported"
+    notes: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in {"reported", "cancelled"}:
+            raise ValueError("status must be 'reported' or 'cancelled'")
+        return v
 
     @field_validator("ticker")
     @classmethod

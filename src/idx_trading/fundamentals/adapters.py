@@ -135,7 +135,7 @@ class ManualPublicationAdapter(FinancialReportAdapter):
         if not content.startswith(b"%PDF"):
             raise ValueError(f"{path.name} is not a PDF")
         basis = str(request.options.get("published_at_basis") or "stated_by_owner")
-        if basis not in {"stated_by_owner", "filename_date"}:
+        if basis not in {"stated_by_owner", "filename_date", "press_report_date"}:
             raise ValueError(f"unknown published_at_basis {basis!r}")
         return [
             RawPayload(
@@ -144,7 +144,7 @@ class ManualPublicationAdapter(FinancialReportAdapter):
                 str(request.options.get("origin_url") or path.name),
                 datetime.now(tz=UTC),
                 {
-                    "kind": DOCUMENT_TYPE,
+                    "kind": "financial_report",
                     "ticker": str(ticker).upper(),
                     "title": str(request.options.get("title") or path.name),
                     "file_name": path.name,

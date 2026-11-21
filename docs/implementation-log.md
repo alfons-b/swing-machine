@@ -177,3 +177,35 @@ the point-in-time switch happens exactly on the day after publication.
   works without API calls.
 - Phase 1 acceptance review: `docs/phase1-acceptance.md`.
 - **Tests:** 205 pass (SQLite + PostgreSQL).
+
+## 2026-11-21 — Owner decisions, non-bank statements, data expansion (branch `data-expansion` → `main`)
+
+Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 statements;
+(3) merge directly; (4) expand the data.
+
+- **Merged** M1.3–M1.6 into `main`. CI failed on it: the runner (Ubuntu 26.04) has
+  PostgreSQL 18 client tools against a 16 server, and a newer `pg_dump` writes
+  `transaction_timeout`, which a 16 server rejects. Backups now require equal majors, and CI
+  starts a server matching the client. CI is green.
+- **BCA:** all 5 quarterly publication reports ingested automatically.
+  - Bug: identical bytes arriving through another channel became a fake revision. Fixed
+    (document identity by SHA-256).
+  - Bug: interim reports say "periode berjalan". Fixed.
+  - Bug: "nothing new" runs were counted as failed; they are now `skipped`.
+  - Q3-2026 profit growth 4.19% matches the press (4.2%).
+- **Non-bank parser** (ADR 0012), verified on ANTAM: 19 concepts, all identities, issued
+  shares from the caption, EPS cross-check, healed split numbers. Press figures match. Bugs
+  found on the real file: notes pages counted as statements; section headings broke wrapped
+  labels.
+- **Data expansion:** master 923 stocks (from EODHD, no invented dates); 100,048 new daily bars
+  for 420 stocks via the one-off bonus calls; corporate actions for 43 stocks.
+- **Vendor data problems found and handled:**
+  - holiday filler bars, sometimes 999999.9999 (OI-33);
+  - fractional "raw" prices: 320 bars marked invalid by the new revalidation (OI-34);
+  - UNTR's superseded dividend applied twice by EODHD: cancelled by an evidenced manual
+    override; the vendor mismatch is acknowledged in `reconciliation_exceptions.yaml`.
+  - Splits confirmed for DSSA (1:25) and CYBR (1:2).
+- **Vendor reconciliation:** 40 pass, 1 acknowledged, 0 fail. Tickers without our own
+  corporate-action lists are skipped, not failed.
+- **Data package:** 219,535 rows, restore-tested, delivered to the owner outside git.
+- **Tests:** 228 pass (SQLite + PostgreSQL).

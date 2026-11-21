@@ -92,6 +92,7 @@ class FactorReport:
     retired: int = 0
     unresolved: list[str] = field(default_factory=list)
     skipped_duplicates: int = 0
+    cancelled: int = 0
 
 
 def choose_actions(actions: list[CorporateAction]) -> tuple[list[CorporateAction], int]:
@@ -210,6 +211,9 @@ class FactorService:
         if instrument_ids is not None:
             q = q.where(CorporateAction.instrument_id.in_(instrument_ids))
         chosen, report.skipped_duplicates = choose_actions(list(self.s.scalars(q)))
+        # A chosen "cancelled" row (manual override) means: no adjustment for this event.
+        report.cancelled = sum(1 for a in chosen if a.status == "cancelled")
+        chosen = [a for a in chosen if a.status != "cancelled"]
         chosen_ids = {a.action_id for a in chosen}
 
         fq = select(PriceAdjustmentFactor).where(PriceAdjustmentFactor.is_current.is_(True))

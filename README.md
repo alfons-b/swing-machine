@@ -188,6 +188,40 @@ uv run idx backup verify
 uv run idx backup status
 ```
 
+### Restore the data package on your machine
+
+The data package (`idx-data-<id>.tar.gz`) contains a PostgreSQL dump, its manifest and the raw
+archive. Vendor data is never put in git.
+
+1. Create an empty database and point `IDX_DATABASE_URL` at it. Your `pg_restore` must be the
+   same PostgreSQL major version as your server.
+2. Unpack the package into a folder, for example `restore\`.
+3. Restore, then copy the raw archive into `data\raw` (`xcopy` on Windows):
+
+```bash
+uv run idx backup restore --dir restore
+```
+
+```bash
+xcopy /E /I restore\raw data\raw
+```
+
+Row counts are checked against the manifest. A non-empty target is refused unless you pass
+`--force`.
+
+### Growing the data at Rp0
+
+- `idx instruments import-eodhd` adds every active JK common stock (listing dates stay
+  unknown until you import the IDX company list).
+- `idx daily` spends the free 20 EODHD calls per day: never-fetched stocks first, in the order
+  of `config/priority_tickers.txt`, then the stalest.
+- Financial statements: `idx fin fetch-bca` for BCA. For other issuers, download the PDF and
+  run `idx fin import-pdf FILE --ticker XXXX --published-on YYYY-MM-DD`; full PSAK statements
+  and bank publication reports are both recognised.
+- Vendor errors you have confirmed go into `config/corporate_action_overrides.csv` (for example
+  `status=cancelled`). Explained reconciliation differences go into
+  `config/reconciliation_exceptions.yaml`, with evidence.
+
 Other useful commands: `idx sources list`, `idx sources check <id> automated_ingestion`,
 `idx instruments universe --on 2026-11-20 --eligible-only`. Add `--help` to any command for
 details.

@@ -152,3 +152,53 @@ def test_cli_eodhd_commands(tmp_path, monkeypatch, fake):
         assert "missing in master: ASII" in out and "not at EODHD:      TLKM" in out
     finally:
         get_settings.cache_clear()
+
+
+def test_priority_orders_never_fetched_tickers(seeded):
+    with session_scope(seeded) as s:
+        members = [
+            (m.ticker, m.instrument_id) for m in InstrumentService(s).collection_universe_on(D(2026, 11, 20))
+        ]
+        plain = plan_refresh(s, "eodhd", members, D(2026, 11, 20), 10, D(2025, 11, 21))
+        pri = plan_refresh(
+            s, "eodhd", members, D(2026, 11, 20), 2, D(2025, 11, 21), priority=["TLKM", "NEWX"]
+        )
+    assert [p.ticker for p in plain][:2] == ["BBCA", "NEWX"]  # alphabetical without priority
+    assert [p.ticker for p in pri] == ["TLKM", "NEWX"]
+
+
+def test_cli_import_eodhd_master(tmp_path, monkeypatch, fake):
+    from idx_trading.cli import main as cli
+    from idx_trading.config import get_settings
+    from tests.conftest import FIXTURES, ROOT
+
+    monkeypatch.setenv("IDX_DATABASE_URL", f"sqlite:///{tmp_path / 'm.db'}")
+    monkeypatch.setenv("IDX_SOURCES_FILE", str(ROOT / "config" / "sources.yaml"))
+    monkeypatch.setenv("IDX_EODHD_BASE_URL", "https://eodhd.test/api")
+    monkeypatch.setenv("IDX_EODHD_API_TOKEN", "test-token")
+    get_settings.cache_clear()
+    real = cli._eodhd_parts
+    monkeypatch.setattr(
+        cli,
+        "_eodhd_parts",
+        lambda b: (*real(b)[:2], HttpClient(transport=fake, sleep=lambda _s: None), real(b)[3]),
+    )
+    fake.symbols = [
+        {"Code": "BBCA", "Name": "Bank Central Asia", "Type": "Common Stock", "Isin": "IDA000010001"},
+        {"Code": "ASII", "Name": "Astra International", "Type": "Common Stock", "Isin": "ID1000122807"},
+        {"Code": "DUPE", "Name": "Same ISIN as BBCA", "Type": "Common Stock", "Isin": "IDA000010001"},
+        {"Code": "LP63505558", "Name": "A fund", "Type": "FUND"},
+        {"Code": "BAD$", "Name": "Bad code", "Type": "Common Stock"},
+    ]
+    r = CliRunner()
+    for args in (
+        ["db", "upgrade"],
+        ["sources", "sync"],
+        ["instruments", "import", str(FIXTURES / "instruments.csv")],
+    ):
+        assert r.invoke(cli.app, args).exit_code == 0
+    out = r.invoke(cli.app, ["instruments", "import-eodhd"])
+    assert out.exit_code == 0, out.output
+    assert "created=1 already_known=1 skipped=3 calls=1" in out.output
+    assert "DUPE: ISIN IDA000010001 already belongs" in out.output
+    get_settings.cache_clear()

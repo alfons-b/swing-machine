@@ -43,3 +43,12 @@ by the owner, or budget.
 **Recommendation:** start Phase 2 (features and baseline models) on the data that exists, and
 widen coverage in parallel. Phase 2 must respect the coverage flags: no fundamental features
 for issuers without reports, and no BUY signal where data is missing or blocked (PRD §8.3).
+
+## Update 2026-11-21 (after data expansion)
+| Item | Before | Now |
+|---|---|---|
+| Instrument master | 5 test stocks | 923 JK common stocks (listing dates still needed, OI-23) |
+| Daily bars | 1,195 | 101,243 (≈425 stocks × 1 year; the rest fills at 16 stocks/day) |
+| Corporate actions reconciled | 5 stocks | 41 stocks (40 pass, 1 acknowledged vendor error) |
+| Financial statements | 2 BCA reports | 5 BCA + ANTAM (first non-bank) |
+| Backups | restore-tested | restore-tested + delivered as a package |

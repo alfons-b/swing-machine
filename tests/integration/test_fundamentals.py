@@ -181,6 +181,38 @@ def test_republication_is_a_revision_and_restatement_is_flagged(env):
         assert old == Dec(250_000 * M) and new == Dec(251_000 * M)
 
 
+def test_identical_document_from_another_channel_is_not_a_revision(env, docs, tmp_path):
+    env["manual"]("fy25", "2026-01-27", **FY25)
+    # Same bytes again, but as a different file and with a different stated origin.
+    same = tmp_path / "copy.pdf"
+    same.write_bytes((tmp_path / "fy25.pdf").read_bytes())
+    r = FinancialReportPipeline(env["f"], RawArchive(env["root"]), today=D(2026, 11, 20)).run(
+        ManualPublicationAdapter(),
+        FetchRequest(
+            paths=(str(same),),
+            options={
+                "ticker": "BBCA",
+                "published_on": "2026-01-27",
+                "origin_url": "https://elsewhere.example/x.pdf",
+            },
+        ),
+    )
+    assert r.counts["unchanged"] == 1 and r.counts["superseded"] == 0
+    with session_scope(env["f"]) as s:
+        assert s.scalar(select(func.count()).select_from(FinancialReport)) == 1
+
+
+def test_nothing_new_is_skipped_not_failed(env):
+    class Empty(ManualPublicationAdapter):
+        def fetch(self, request):
+            return []
+
+    r = FinancialReportPipeline(env["f"], RawArchive(env["root"]), today=D(2026, 11, 20)).run(
+        Empty(), FetchRequest()
+    )
+    assert r.status == RunStatus.SKIPPED and r.error is None
+
+
 def test_bad_documents_are_rejected(env):
     r = env["manual"]("early", "2025-12-30", **FY25)  # published before its period ended
     assert r.status == RunStatus.FAILED
@@ -244,16 +276,6 @@ def test_bca_adapter_discovers_and_downloads(env, docs, monkeypatch):
                 HttpClient(transport=forbidden, sleep=lambda _s: None), index_url="https://bca.example/ir"
             ),
             FetchRequest(),
-        )
-
-
-def test_bca_ir_is_on_hold_in_shipped_registry(seeded):
-    from idx_trading.errors import SourceNotPermittedError
-
-    client = HttpClient(transport=lambda *a: (200, {}, b""), sleep=lambda _s: None)
-    with pytest.raises(SourceNotPermittedError, match="pending_review"):
-        FinancialReportPipeline(seeded, RawArchive("/nonexistent"), today=D(2026, 11, 20)).run(
-            BcaIrAdapter(client), FetchRequest()
         )
 
 

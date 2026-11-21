@@ -18,20 +18,18 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from idx_trading.db.enums import RecordOutcome, Severity, ValidationStatus
+from idx_trading.db.enums import RecordOutcome, RunStatus, Severity, ValidationStatus
 from idx_trading.db.models import (
     FinancialFact,
     FinancialReport,
     IngestionRecord,
     Instrument,
+    RawArtifact,
 )
 from idx_trading.fundamentals.adapters import FinancialReportAdapter
-from idx_trading.fundamentals.bank_publication import (
-    ParsedPublication,
-    check_identities,
-    parse_publication,
-)
+from idx_trading.fundamentals.bank_publication import ParsedPublication
 from idx_trading.fundamentals.concepts import CONCEPTS
+from idx_trading.fundamentals.full_statements import parse_document
 from idx_trading.fundamentals.pdf import pdf_pages
 from idx_trading.ingestion.adapters.base import SourceAdapter
 from idx_trading.ingestion.pipeline import EodIngestionPipeline, _Counts
@@ -51,6 +49,12 @@ class FinRule:
     PUBLISHED_BEFORE_PERIOD = "fin_published_before_period_end"
     UNKNOWN_TICKER = "fin_unknown_ticker"
     RESTATED = "fin_comparative_restated"
+    EPS_SHARES = "fin_eps_share_mismatch"
+
+
+def _unit(concept: str, currency: str) -> str:
+    unit = CONCEPTS[concept].unit
+    return unit.replace("IDR", currency) if currency != "IDR" else unit
 
 
 def availability(published_on: date) -> tuple[datetime, datetime]:
@@ -59,6 +63,13 @@ def availability(published_on: date) -> tuple[datetime, datetime]:
 
 
 class FinancialReportPipeline(EodIngestionPipeline):
+    @staticmethod
+    def _final_status(c: _Counts) -> RunStatus:
+        # Reports appear a few times a year: "nothing new" is normal, not a failure.
+        if c.received == 0:
+            return RunStatus.SKIPPED
+        return EodIngestionPipeline._final_status(c)
+
     def _process(
         self,
         s: Session,
@@ -105,14 +116,23 @@ class FinancialReportPipeline(EodIngestionPipeline):
         existing = s.scalar(select(FinancialReport).where(FinancialReport.artifact_id == artifact_id))
         if existing is not None:
             return RecordOutcome.UNCHANGED, ValidationStatus.VALID, None, None
+        # The same document (identical bytes) obtained through another channel is not a revision.
+        sha = s.scalar(select(RawArtifact.sha256).where(RawArtifact.artifact_id == artifact_id))
+        same = s.scalar(
+            select(FinancialReport.report_id)
+            .join(RawArtifact, RawArtifact.artifact_id == FinancialReport.artifact_id)
+            .where(RawArtifact.sha256 == sha)
+            .limit(1)
+        )
+        if same is not None:
+            return RecordOutcome.UNCHANGED, ValidationStatus.VALID, f"same document as report {same}", None
         try:
             pages = pdf_pages(payload.content)
         except ValueError as exc:
             return self._reject(s, src, run_id, FinRule.UNREADABLE, str(exc))
-        parsed = parse_publication(pages)
+        parsed, problems, warnings = parse_document(pages)
         if parsed.errors:
             return self._reject(s, src, run_id, FinRule.PARSE, "; ".join(parsed.errors))
-        problems = check_identities(parsed)
         if problems:
             return self._reject(s, src, run_id, FinRule.IDENTITY, "; ".join(problems))
 
@@ -142,7 +162,7 @@ class FinancialReportPipeline(EodIngestionPipeline):
             return self._reject(
                 s, src, run_id, FinRule.PARSE, f"period end {parsed.period_end} is not a quarter end", iid
             )
-        doc_type = str(meta["kind"])
+        doc_type = parsed.document_type
         prior_rev = s.scalar(
             select(func.max(FinancialReport.revision_id)).where(
                 FinancialReport.issuer_id == inst.issuer_id,
@@ -190,6 +210,17 @@ class FinancialReportPipeline(EodIngestionPipeline):
             )
         s.flush()
         restated = self._check_comparatives(s, src, run_id, report, parsed, iid)
+        for w in warnings:
+            restated += 1
+            self._issue(
+                s,
+                run_id,
+                src,
+                "financial_reports",
+                Finding(FinRule.EPS_SHARES, Severity.WARNING, w),
+                iid,
+                parsed.period_end,
+            )
         outcome = RecordOutcome.SUPERSEDED if prior_rev else RecordOutcome.INSERTED
         if restated:
             return (

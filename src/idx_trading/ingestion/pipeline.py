@@ -94,6 +94,7 @@ class _Counts:
     superseded: int = 0
     rejected: int = 0
     warned: int = 0
+    dropped: int = 0  # vendor filler bars on non-sessions: discarded, not an error
 
     def bump(self, outcome: RecordOutcome) -> None:
         name = {
@@ -162,7 +163,7 @@ class EodIngestionPipeline:
             with session_scope(self.factory) as s:
                 self._process(s, adapter, request, run_id, policy, counts)
             status = self._final_status(counts)
-            error = None if counts.received else "adapter returned no records"
+            error = None if counts.received or status == RunStatus.SKIPPED else "adapter returned no records"
         except Exception as exc:  # recorded, then re-raised for the caller's visibility
             log.exception("ingestion run %s failed", run_uuid)
             status, error = RunStatus.FAILED, f"{type(exc).__name__}: {exc}"
@@ -381,6 +382,21 @@ class EodIngestionPipeline:
             vstatus = status_of(findings)
 
             kept: DailyPrice | None = None
+            if any(f.rule_code == Rule.VENDOR_FILLER for f in findings):
+                c.dropped += 1
+                s.add(
+                    IngestionRecord(
+                        run_id=run_id,
+                        artifact_id=artifact_of[bar.key],
+                        record_key=bar.key,
+                        instrument_id=iid,
+                        trade_date=bar.trade_date,
+                        outcome=RecordOutcome.REJECTED.value,
+                        validation_status=ValidationStatus.INVALID.value,
+                        message=f"{Rule.VENDOR_FILLER}: zero-volume bar on a non-session; dropped",
+                    )
+                )
+                continue
             if vstatus == ValidationStatus.INVALID or iid is None:
                 outcome = RecordOutcome.REJECTED
             else:

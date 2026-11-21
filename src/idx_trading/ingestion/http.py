@@ -20,7 +20,10 @@ from dataclasses import dataclass
 
 from idx_trading import __version__
 
-USER_AGENT = f"idx-trading/{__version__} (personal research; python-urllib)"
+#: Honest identity, no browser imitation. The library token was dropped on the owner's
+#: decision of 2026-11-21 (OI-30): some sites filter on it, and the client is still
+#: identified as this project.
+USER_AGENT = f"idx-trading/{__version__} (personal research)"
 _SECRET_PARAMS = re.compile(r"(?i)(api_token|apikey|api_key|token|key)=[^&]*")
 RETRYABLE = {429, 500, 502, 503, 504}
 

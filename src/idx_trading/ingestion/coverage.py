@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -86,12 +87,14 @@ def plan_refresh(
     target: date,
     budget: int,
     history_start: date,
+    priority: list[str] | None = None,
 ) -> list[RefreshItem]:
     """Choose which tickers to refresh when calls are scarce (per-ticker sources).
 
     One call fetches any date window, so each chosen ticker is brought fully up to
-    `target`. Priority: never-fetched first, then the stalest. Tickers already at
-    `target` are skipped. Ties break by ticker for determinism.
+    `target`. Priority: never-fetched first, then the stalest; within a tie, tickers
+    in `priority` first (in that order), then alphabetical. Tickers already at
+    `target` are skipped.
     """
     latest = dict(
         session.execute(
@@ -107,5 +110,24 @@ def plan_refresh(
             continue
         start = history_start if last is None else max(history_start, last + timedelta(days=1))
         items.append(RefreshItem(ticker, iid, start, last))
-    items.sort(key=lambda i: (i.latest_stored is not None, i.latest_stored or date.min, i.ticker))
+    rank = {t: k for k, t in enumerate(priority or [])}
+    items.sort(
+        key=lambda i: (
+            i.latest_stored is not None,
+            i.latest_stored or date.min,
+            rank.get(i.ticker, len(rank)),
+            i.ticker,
+        )
+    )
     return items[:budget]
+
+
+def read_priority(path: str | Path) -> list[str]:
+    """Whitespace-separated tickers; '#' starts a comment."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    out: list[str] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        out.extend(line.split("#", 1)[0].split())
+    return [t.upper() for t in out]

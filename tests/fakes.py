@@ -36,6 +36,7 @@ class FakeEodhd:
         q = dict(urllib.parse.parse_qsl(parsed.query))
         self.calls.append(parsed.path)
         assert headers["User-Agent"].startswith("idx-trading/")
+        assert "python-urllib" not in headers["User-Agent"] and "Mozilla" not in headers["User-Agent"]
         if q.get("api_token") != "test-token":
             return 401, {}, b"Unauthenticated"
         if self.fail_first:
