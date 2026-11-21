@@ -9,7 +9,7 @@
 | M1.3 | Corporate action ingestion; split and total-return adjustment factors; adjusted series; raw↔adjusted reconciliation | **Done** (2026-11-21) |
 | M1.4 | Fundamental ingestion (point in time), financial facts normalisation | **Done for banks** (2026-11-21); non-banks open (OI-29), BCA automation awaiting owner (OI-30) |
 | M1.5 | Cross-source reconciliation job, `reconciliation_results` | **Done** (2026-11-21); live data has one price source so far |
-| M1.6 | Backups (daily, 90-day retention) and restore test; Phase 1 acceptance review | Planned |
+| M1.6 | Backups (daily, 90-day retention) and restore test; Phase 1 acceptance review | **Done** (2026-11-21), see `docs/phase1-acceptance.md` |
 
 ## 2026-11-21 — M1.1
 
@@ -160,3 +160,20 @@ the point-in-time switch happens exactly on the day after publication.
   stored, not every passing pair.
 - Live: only EODHD bars so far, so the command reports "nothing to compare" instead of a
   meaningless pass.
+
+## 2026-11-21 — M1.6 backups, daily routine, Phase 1 acceptance (branch `m1.6-backup`)
+
+- `ops/backup.py` + `idx backup create | verify | prune | archive | status` (ADR 0011):
+  snapshot-consistent `pg_dump`, a real restore test into a scratch database, 90-day
+  retention, checksum-verified incremental archive copy.
+- `idx daily`: the whole EOD routine with isolated steps and an exit code for
+  healthy/degraded/failed.
+- **Bugs fixed:**
+  - SQLite connections were left open (`with sqlite3.connect()` does not close);
+  - price and corporate-action collection used BUY eligibility, so unknown-status and
+    suspended stocks got no data. Now every listed common stock is collected; warrants are
+    excluded.
+- **Live:** backup and restore of 3,062 rows matched; archive copy 26 files; `idx daily`
+  works without API calls.
+- Phase 1 acceptance review: `docs/phase1-acceptance.md`.
+- **Tests:** 205 pass (SQLite + PostgreSQL).

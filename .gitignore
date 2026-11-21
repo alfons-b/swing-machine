@@ -17,3 +17,6 @@ data/*
 !data/.gitkeep
 *.duckdb
 *.parquet
+# Backups — never committed
+backups/
+logs/

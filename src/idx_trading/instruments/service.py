@@ -328,3 +328,22 @@ class InstrumentService:
                 reason = f"listing status {status.value}"
             out.append(UniverseMember(inst.instrument_id, ticker, status, reason is None, reason))
         return out
+
+    def collection_universe_on(self, on: date) -> list[UniverseMember]:
+        """Instruments whose data should be collected on `on`.
+
+        Every common stock that is listed (active, suspended, or with unknown listing
+        history) is collected. Warrants, rights and derivatives are not (PRD §6.5),
+        and delisted names stop. BUY eligibility (`eligible`) is a separate, stricter filter.
+        """
+        keep = {ListingStatus.ACTIVE, ListingStatus.SUSPENDED, ListingStatus.UNKNOWN}
+        out = []
+        for m in self.universe_on(on):
+            inst = self.s.get(Instrument, m.instrument_id)
+            if (
+                inst is not None
+                and inst.instrument_type == InstrumentType.COMMON_STOCK.value
+                and m.status in keep
+            ):
+                out.append(m)
+        return out

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -27,6 +27,7 @@ inst_app = typer.Typer(help="Instrument master", no_args_is_help=True)
 ingest_app = typer.Typer(help="EOD ingestion", no_args_is_help=True)
 ca_app = typer.Typer(help="Corporate actions and adjustment factors", no_args_is_help=True)
 prices_app = typer.Typer(help="Price series (raw / split / total-return)", no_args_is_help=True)
+backup_app = typer.Typer(help="Backups, restore tests and archive copies", no_args_is_help=True)
 fin_app = typer.Typer(help="Point-in-time fundamentals (financial reports, ratios)", no_args_is_help=True)
 for sub, name in (
     (db_app, "db"),
@@ -37,6 +38,7 @@ for sub, name in (
     (ca_app, "ca"),
     (prices_app, "prices"),
     (fin_app, "fin"),
+    (backup_app, "backup"),
 ):
     app.add_typer(sub, name=name)
 
@@ -265,7 +267,7 @@ def _eodhd_parts(budget: int | None):
 @ingest_app.command("eodhd")
 def ingest_eodhd(
     tickers: Annotated[str | None, typer.Option(help="Comma-separated IDX tickers")] = None,
-    universe: Annotated[bool, typer.Option(help="All eligible instruments on --end")] = False,
+    universe: Annotated[bool, typer.Option(help="All listed instruments on --end")] = False,
     end: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
     budget: Annotated[int | None, typer.Option(help="Max API calls for this run")] = None,
     dry_run: Annotated[bool, typer.Option(help="Print the plan; send nothing")] = False,
@@ -300,7 +302,8 @@ def ingest_eodhd(
             target = found
         svc = InstrumentService(s)
         if universe:
-            members = [(m.ticker, m.instrument_id) for m in svc.universe_on(target) if m.eligible]
+            # Collect data for every listed common stock; BUY eligibility is a later filter.
+            members = [(m.ticker, m.instrument_id) for m in svc.collection_universe_on(target)]
         else:
             assert tickers is not None
             members = []
@@ -502,12 +505,8 @@ def _resolve_members(s: Session, tickers: str | None, universe: bool, on: date) 
         _fail(IdxTradingError("give exactly one of --tickers or --universe"))
     svc = InstrumentService(s)
     if universe:
-        # Every listed instrument: corporate actions matter for all of them.
-        return [
-            (m.ticker, m.instrument_id)
-            for m in svc.universe_on(on)
-            if m.status.value in ("active", "unknown", "suspended")
-        ]
+        # Every listed common stock: corporate actions matter for all of them.
+        return [(m.ticker, m.instrument_id) for m in svc.collection_universe_on(on)]
     out = []
     assert tickers is not None
     for t in (x.strip().upper() for x in tickers.split(",") if x.strip()):
@@ -923,6 +922,180 @@ def ingest_reconcile(
         typer.echo("  nothing to compare: no session has bars from two sources")
     if r.failed:
         raise typer.Exit(code=2)
+
+
+@backup_app.command("create")
+def backup_create() -> None:
+    """Back up the database (consistent snapshot) and write a manifest."""
+    from idx_trading.ops.backup import create_backup
+
+    st = get_settings()
+    try:
+        m = create_backup(st.database_url, st.backup_dir)
+    except (RuntimeError, ValueError, OSError) as exc:
+        _fail(IdxTradingError(str(exc)))
+    total = sum(m.row_counts.values())
+    typer.echo(
+        f"backup {m.backup_id}: {m.kind} {m.size_bytes:,} bytes, {total:,} rows, "
+        f"revision {m.alembic_revision}"
+    )
+
+
+@backup_app.command("verify")
+def backup_verify(
+    backup_id: Annotated[str | None, typer.Argument(help="Default: the newest")] = None,
+) -> None:
+    """Checksum + full restore into a scratch database, row counts compared."""
+    from idx_trading.ops.backup import load_manifests, verify_backup
+
+    st = get_settings()
+    ms = load_manifests(st.backup_dir) if st.backup_dir.exists() else []
+    m = next((x for x in ms if x.backup_id == backup_id), None) if backup_id else (ms[-1] if ms else None)
+    if m is None:
+        _fail(IdxTradingError("backup not found"))
+    assert m is not None
+    r = verify_backup(m, st.backup_dir, st.database_url)
+    typer.echo(
+        f"verify {m.backup_id}: checksum={r.checksum_ok} restore={r.restore_ok} revision={r.revision_ok} "
+        f"mismatched_tables={r.mismatched_tables or 'none'}"
+    )
+    if r.error:
+        typer.echo(f"  error: {r.error}")
+    if not r.ok:
+        raise typer.Exit(code=2)
+
+
+@backup_app.command("prune")
+def backup_prune(keep_days: Annotated[int | None, typer.Option()] = None) -> None:
+    """Delete backups older than the retention period (the newest is always kept)."""
+    from idx_trading.ops.backup import prune_backups
+
+    st = get_settings()
+    removed = prune_backups(st.backup_dir, keep_days or st.backup_keep_days)
+    typer.echo(f"removed {len(removed)}: {removed}")
+
+
+@backup_app.command("archive")
+def backup_archive(
+    dest: Annotated[Path | None, typer.Option(help="Default: <backup_dir>/raw")] = None,
+) -> None:
+    """Copy new raw-archive files to the backup location, verifying every checksum."""
+    from idx_trading.ops.backup import sync_archive
+
+    st = get_settings()
+    r = sync_archive(st.raw_archive_dir, dest or st.backup_dir / "raw")
+    typer.echo(
+        f"copied={r.copied} verified={r.verified} repaired={len(r.repaired_destination)} "
+        f"corrupt_source={r.corrupt_source}"
+    )
+    if r.corrupt_source:
+        raise typer.Exit(code=2)
+
+
+@backup_app.command("status")
+def backup_status_cmd() -> None:
+    """healthy | degraded | failed, with reasons (PRD §18.2/18.3)."""
+    from idx_trading.ops.backup import backup_status
+
+    b = backup_status(get_settings().backup_dir)
+    typer.echo(f"{b.state}: latest={b.latest_backup} last_verified={b.latest_verified}")
+    for r in b.reasons:
+        typer.echo(f"  - {r}")
+    if b.state != "healthy":
+        raise typer.Exit(code=1)
+
+
+@app.command("daily")
+def daily(
+    eod_budget: Annotated[
+        int | None, typer.Option(help="EODHD calls for prices (default: budget - ca)")
+    ] = None,
+    ca_budget: Annotated[int, typer.Option(help="EODHD calls for dividends/splits (2 per ticker)")] = 4,
+    verify_every_days: Annotated[int, typer.Option(help="Restore-test the newest backup this often")] = 30,
+) -> None:
+    """The whole EOD routine (PRD §8.1): prices, corporate actions, factors, checks, backup.
+
+    Each step runs on its own; a failing optional step does not stop the others
+    (PRD §18.3). Exit code: 0 healthy, 1 degraded, 2 failed. Schedule it once per
+    trading day after 17:30 WIB (Windows Task Scheduler / cron).
+    """
+    import json as _json
+    import traceback
+
+    from idx_trading.ops.backup import VERIFY_SUFFIX, load_manifests
+
+    st = get_settings()
+    total = st.eodhd_daily_call_budget
+    eod = eod_budget if eod_budget is not None else max(total - ca_budget, 0)
+    results: list[tuple[str, str, str]] = []
+
+    def step(name: str, critical: bool, fn, *args, **kwargs) -> None:
+        try:
+            fn(*args, **kwargs)
+            results.append((name, "ok", ""))
+        except typer.Exit as e:
+            code = e.exit_code or 0
+            results.append(
+                (name, "ok" if code == 0 else ("failed" if critical else "degraded"), f"exit {code}")
+            )
+        except Exception as exc:
+            results.append((name, "failed" if critical else "degraded", f"{type(exc).__name__}: {exc}"))
+            typer.echo(traceback.format_exc()[-1500:], err=True)
+
+    have_token = st.eodhd_api_token is not None and bool(st.eodhd_api_token.get_secret_value())
+    step("sources sync", True, sources_sync, None)
+    if have_token and eod > 0:
+        step(
+            "eod prices (eodhd)",
+            True,
+            ingest_eodhd,
+            tickers=None,
+            universe=True,
+            end=None,
+            budget=eod,
+            dry_run=False,
+            supersede=False,
+        )
+    else:
+        results.append(("eod prices (eodhd)", "degraded", "no token or zero budget"))
+    if have_token and ca_budget >= 2:
+        step(
+            "corporate actions (eodhd)",
+            False,
+            ca_fetch_eodhd,
+            tickers=None,
+            universe=True,
+            budget=ca_budget,
+            dry_run=False,
+            supersede=False,
+        )
+    step("adjustment factors", False, ca_factors)
+    step("vendor reconciliation", False, ca_reconcile, tickers=None, universe=True)
+    step("cross-source reconciliation", False, ingest_reconcile, start=None, end=None)
+    step("freshness", False, ingest_freshness, source="eodhd")
+    step("backup", True, backup_create)
+    step("archive copy", True, backup_archive, dest=None)
+    step("prune backups", False, backup_prune, keep_days=None)
+    ms = load_manifests(st.backup_dir) if st.backup_dir.exists() else []
+    last_ok = None
+    for m in ms:
+        vp = st.backup_dir / f"{m.backup_id}{VERIFY_SUFFIX}"
+        if vp.exists():
+            v = _json.loads(vp.read_text())
+            if v["checksum_ok"] and v["restore_ok"] and v["revision_ok"] and not v["mismatched_tables"]:
+                last_ok = datetime.fromisoformat(v["checked_at"])
+    if last_ok is None or last_ok < datetime.now(tz=UTC) - timedelta(days=verify_every_days):
+        step("restore test", False, backup_verify, None)
+
+    worst = (
+        "failed"
+        if any(r[1] == "failed" for r in results)
+        else ("degraded" if any(r[1] == "degraded" for r in results) else "healthy")
+    )
+    typer.echo(f"\n== daily: {worst}")
+    for name, status, detail in results:
+        typer.echo(f"  {status:8} {name:28} {detail}")
+    raise typer.Exit(code={"healthy": 0, "degraded": 1, "failed": 2}[worst])
 
 
 @sources_app.command("check")

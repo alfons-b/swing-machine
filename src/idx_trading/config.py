@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     #: History reachable on the plan; the free plan serves the past year only.
     eodhd_history_days: int = Field(default=365, ge=1)
 
+    #: Separate location for database backups and the archive copy (PRD §18.2).
+    backup_dir: Path = Path("./backups")
+    backup_keep_days: int = Field(default=90, ge=1)
+
     @property
     def raw_archive_dir(self) -> Path:
         return self.data_dir / "raw"

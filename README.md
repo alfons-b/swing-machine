@@ -2,7 +2,7 @@
 
 A personal quantitative research platform for the Indonesia Stock Exchange (BEI/IDX).
 
-**Current state: Phase 1, Milestones M1.1–M1.4 — data foundation, automated EOD source, corporate actions, adjusted prices and point-in-time bank fundamentals.** There are no models, signals or
+**Current state: Phase 1 complete (M1.1–M1.6), see `docs/phase1-acceptance.md`. Data foundation, automated EOD source, corporate actions and adjusted prices, point-in-time bank fundamentals, cross-source checks, verified backups.** There are no models, signals or
 dashboard yet. By design (PRD §28, §30), these come only after the data infrastructure passes
 its acceptance tests.
 
@@ -157,6 +157,36 @@ uv run idx fin ratios BBCA --as-of 2026-04-24
 
 A report becomes visible the day after its publication date. `idx fin fetch-bca` (automatic
 download from BCA's IR page) is on hold until the owner decides OI-30.
+
+### Daily routine and backups (ADR 0011)
+
+```bash
+uv run idx daily
+```
+
+It runs prices, corporate actions, factors, checks, backup and the archive copy, plus a restore
+test every 30 days. Exit code 0 = healthy, 1 = degraded, 2 = failed. Set `IDX_BACKUP_DIR` to a
+different disk or a synced folder.
+
+On Windows, schedule it once per trading day after 17:30 WIB:
+
+```bash
+schtasks /Create /TN "idx-daily" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 17:45 /TR "cmd /c cd /d C:\path\to\swing-machine && uv run idx daily >> logs\daily.log 2>&1"
+```
+
+Run the backup commands separately when needed:
+
+```bash
+uv run idx backup create
+```
+
+```bash
+uv run idx backup verify
+```
+
+```bash
+uv run idx backup status
+```
 
 Other useful commands: `idx sources list`, `idx sources check <id> automated_ingestion`,
 `idx instruments universe --on 2026-11-20 --eligible-only`. Add `--help` to any command for

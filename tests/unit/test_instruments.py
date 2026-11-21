@@ -162,3 +162,17 @@ def test_no_listing_history_means_unknown_not_unlisted(seeded):
         # Events that exist but lie in the future still mean "not yet listed".
         svc.add_listing_event(inst.instrument_id, ListingEventType.LISTED, D(2026, 12, 1))
         assert svc.status_on(inst.instrument_id, D(2026, 11, 20)) == ListingStatus.NOT_LISTED
+
+
+def test_collection_universe_is_listed_common_stock_only(seeded):
+    with session_scope(seeded) as s:
+        svc = InstrumentService(s)
+        svc.create_instrument(
+            ticker="UNKN",
+            issuer_name="PT Unknown Date Tbk",
+            instrument_type=InstrumentType.COMMON_STOCK,
+            listing_date=None,
+        )
+        got = {m.ticker for m in svc.collection_universe_on(D(2026, 11, 20))}
+    # Suspended and unknown-status stocks are collected; warrants and delisted names are not.
+    assert got == {"BBCA", "TLKM", "NEWX", "SUSP", "UNKN"}
