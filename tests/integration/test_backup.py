@@ -2,7 +2,6 @@
 
 import json
 import shutil
-import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -23,18 +22,32 @@ def _db_url(factory):
     return str(factory.kw["bind"].url.render_as_string(hide_password=False))
 
 
-def _pg_tools_ok(url: str) -> bool:
-    if not shutil.which("pg_dump") or not shutil.which("pg_restore"):
-        return False
-    out = subprocess.run(["pg_dump", "--version"], capture_output=True, text=True).stdout
-    client = int(out.split()[-1].split(".")[0])
+def _server_major(url: str) -> int:
     eng = make_engine(url)
     try:
         with eng.connect() as c:
-            server = int(c.execute(text("SHOW server_version_num")).scalar()) // 10000
+            return int(c.execute(text("SHOW server_version_num")).scalar()) // 10000
     finally:
         eng.dispose()
-    return client >= server
+
+
+def _pg_tools_ok(url: str) -> bool:
+    if not shutil.which("pg_dump") or not shutil.which("pg_restore"):
+        return False
+    from idx_trading.ops.backup import tool_major
+
+    return tool_major("pg_dump") == _server_major(url)
+
+
+def test_mismatched_pg_tools_are_refused(seeded, tmp_path, monkeypatch):
+    url = _db_url(seeded)
+    if not url.startswith("postgresql"):
+        pytest.skip("PostgreSQL only")
+    import idx_trading.ops.backup as b
+
+    monkeypatch.setattr(b, "tool_major", lambda tool: _server_major(url) + 1)
+    with pytest.raises(RuntimeError, match="install the matching client tools"):
+        create_backup(url, tmp_path / "b")
 
 
 def test_backup_verify_status_and_prune(seeded, tmp_path):

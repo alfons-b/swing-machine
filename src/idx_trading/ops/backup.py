@@ -66,6 +66,27 @@ def _run(cmd: list[str], env: dict[str, str]) -> None:
         raise RuntimeError(f"{cmd[0]} failed ({proc.returncode}): {proc.stderr.strip()[:2000]}")
 
 
+def tool_major(tool: str) -> int:
+    out = subprocess.run([tool, "--version"], capture_output=True, text=True, check=False).stdout
+    try:
+        return int(out.split()[-1].split(".")[0])
+    except (IndexError, ValueError) as exc:
+        raise RuntimeError(f"cannot read {tool} version from {out!r}") from exc
+
+
+def _require_matching_tools(conn: Any, tool: str) -> None:
+    """Dumps from a newer pg_dump contain settings an older server rejects (e.g.
+    `transaction_timeout`, PostgreSQL 17+), and pg_dump cannot dump a newer server.
+    A backup is only trustworthy if tool and server majors are equal."""
+    server = int(conn.execute(text("SHOW server_version_num")).scalar_one()) // 10000
+    client = tool_major(tool)
+    if client != server:
+        raise RuntimeError(
+            f"{tool} is PostgreSQL {client} but the server is {server}: install the matching "
+            f"client tools (PostgreSQL {server}) so backups can be restored reliably"
+        )
+
+
 def _counts(conn: Any) -> dict[str, int]:
     tables = sorted(t for t in inspect(conn).get_table_names())
     return {t: int(conn.execute(text(f'SELECT count(*) FROM "{t}"')).scalar_one()) for t in tables}
@@ -119,6 +140,7 @@ def create_backup(database_url: str, backup_dir: Path, now: datetime | None = No
             # same data even if writes happen meanwhile.
             with engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn, conn.begin():
                 conn.execute(text("SET TRANSACTION READ ONLY"))
+                _require_matching_tools(conn, "pg_dump")
                 snapshot = conn.execute(text("SELECT pg_export_snapshot()")).scalar_one()
                 counts = _counts(conn)
                 rev = _revision(counts, conn)
@@ -197,6 +219,7 @@ def verify_backup(manifest: Manifest, backup_dir: Path, database_url: str) -> Ve
             eng = create_engine(admin, isolation_level="AUTOCOMMIT")
             try:
                 with eng.connect() as c:
+                    _require_matching_tools(c, "pg_restore")
                     c.execute(text(f'CREATE DATABASE "{scratch}"'))
                 try:
                     _run(
