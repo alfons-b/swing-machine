@@ -906,6 +906,25 @@ def fin_ratios(
         typer.echo(f"  note: {n}")
 
 
+@ingest_app.command("reconcile")
+def ingest_reconcile(
+    start: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
+    end: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
+) -> None:
+    """Compare bars from different sources for the same stock and session."""
+    from idx_trading.ingestion.reconcile_sources import reconcile_sources
+
+    with _db() as s:
+        r = reconcile_sources(s, start=start.date() if start else None, end=end.date() if end else None)
+    typer.echo(f"batch {r.batch_id}: compared={r.compared} pass={r.passed} warn={r.warned} fail={r.failed}")
+    for pair, st in sorted(r.by_pair.items()):
+        typer.echo(f"  {pair:24} {st}")
+    if r.compared == 0:
+        typer.echo("  nothing to compare: no session has bars from two sources")
+    if r.failed:
+        raise typer.Exit(code=2)
+
+
 @sources_app.command("check")
 def sources_check(source_id: str, purpose: PermissionPurpose) -> None:
     """Exit 0 if `source_id` is approved for `purpose`, else 1."""

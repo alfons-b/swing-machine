@@ -8,7 +8,7 @@
 | M1.2 | Source review and selection (ADR 0008); EODHD adapter with call budget, refresh planner, bulk mode; ticker-list comparison; live JK test; archive replay | **Done** (2026-11-21), apart from the scheduled workflow (OI-20) |
 | M1.3 | Corporate action ingestion; split and total-return adjustment factors; adjusted series; raw↔adjusted reconciliation | **Done** (2026-11-21) |
 | M1.4 | Fundamental ingestion (point in time), financial facts normalisation | **Done for banks** (2026-11-21); non-banks open (OI-29), BCA automation awaiting owner (OI-30) |
-| M1.5 | Cross-source reconciliation job, `reconciliation_results` | Planned |
+| M1.5 | Cross-source reconciliation job, `reconciliation_results` | **Done** (2026-11-21); live data has one price source so far |
 | M1.6 | Backups (daily, 90-day retention) and restore test; Phase 1 acceptance review | Planned |
 
 ## 2026-11-21 — M1.1
@@ -149,3 +149,14 @@ identical results with no API calls.
 the point-in-time switch happens exactly on the day after publication.
 
 **Tests:** 191 pass (SQLite + PostgreSQL).
+
+## 2026-11-21 — M1.5 cross-source reconciliation (branch `m1.5-reconciliation`)
+
+- `ingestion/reconcile_sources.py` + `idx ingest reconcile`: for every (instrument, session)
+  with bars from two or more sources, OHLC must be identical (IDX tick grid). Volume is
+  compared after converting EODHD volume back to raw; a difference above 5% is a warning.
+- Price mismatches open `cross_source_price_mismatch` issues; `blocked_bars()` lets
+  downstream stages refuse those sessions (PRD §8.3). Only exceptions and a summary are
+  stored, not every passing pair.
+- Live: only EODHD bars so far, so the command reports "nothing to compare" instead of a
+  meaningless pass.

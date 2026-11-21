@@ -37,7 +37,7 @@ Milestone numbering is described in `implementation-log.md`.
 | Extreme price changes | `extreme_move` | warning |
 | Corporate action inconsistencies | `corporate_action_inconsistency` (split vs price), `ca_*` input rules, `adjustment_unresolved` | warning / error |
 | Stale data | `coverage.check_freshness` | report |
-| Cross-source discrepancies | rows kept per source; vendor-adjusted-close reconciliation done (M1.3); price-vs-price check planned (M1.5) | — |
+| Cross-source discrepancies | `cross_source_price_mismatch` (prices exact, volume ±5% after basis conversion), `idx ingest reconcile` | error / warning |
 | Revision of stored data | `revision_conflict` | warning |
 
 ## Non-functional requirements
