@@ -23,6 +23,9 @@ def test_shipped_registry_reflects_source_review():
     # Only EODHD (ADR 0008) and the calendar library may be used automatically.
     auto = {s.source_id for s in reg.sources if perm(s.source_id, "automated_ingestion") == "approved"}
     assert auto == {"eodhd", "exchange_calendars_lib"}
+    # BCA IR is reviewed but on hold: its firewall blocks scripted clients (ADR 0010).
+    assert perm("bca_ir", "automated_ingestion") == "pending_review"
+    assert perm("bca_ir", "redistribution") == "denied"
     assert perm("yahoo_finance", "automated_ingestion") == "denied"
     assert by_id["yahoo_finance"].source_status == SourceStatus.BLOCKED
     assert perm("idx_official", "automated_ingestion") == "denied"

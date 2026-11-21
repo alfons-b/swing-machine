@@ -7,7 +7,7 @@
 | M1.1 | Repository, environment, configuration, schema and migrations, source registry and permission gate, instrument master, trading calendar, EOD ingestion framework, CSV adapter, CI | **Done** (2026-11-21) |
 | M1.2 | Source review and selection (ADR 0008); EODHD adapter with call budget, refresh planner, bulk mode; ticker-list comparison; live JK test; archive replay | **Done** (2026-11-21), apart from the scheduled workflow (OI-20) |
 | M1.3 | Corporate action ingestion; split and total-return adjustment factors; adjusted series; raw↔adjusted reconciliation | **Done** (2026-11-21) |
-| M1.4 | Fundamental ingestion (point in time), financial facts normalisation | Planned |
+| M1.4 | Fundamental ingestion (point in time), financial facts normalisation | **Done for banks** (2026-11-21); non-banks open (OI-29), BCA automation awaiting owner (OI-30) |
 | M1.5 | Cross-source reconciliation job, `reconciliation_results` | Planned |
 | M1.6 | Backups (daily, 90-day retention) and restore test; Phase 1 acceptance review | Planned |
 
@@ -127,3 +127,25 @@ identical results with no API calls.
 - A field named `date` shadowed the `date` type in the vendor schema (caught by mypy).
 
 **Tests:** 166 pass (SQLite + PostgreSQL).
+
+## 2026-11-21 — M1.4 point-in-time fundamentals (branch `m1.4-fundamentals`)
+
+**Source review (ADR 0010).**
+- IDX `idx.co.id`: denied (bot challenge). `idx.id`: only a front end for the same protected
+  API, so not used.
+- EODHD fundamentals: paid.
+- BCA IR: acceptable, but automation is on hold because its firewall blocks `python-urllib`
+  (owner decision, OI-30).
+
+**Built.**
+- Migration `0003`: fact basis, period and scale; report document type, title, publication-date
+  basis, run link; new unique keys.
+- OJK bank publication parser with identity checks; BCA IR adapter (index discovery,
+  filename publication dates, re-upload = revision); manual PDF import; point-in-time queries
+  (next-day availability, revision-aware); TTM; ratios (FR-007).
+- CLI: `idx fin fetch-bca | import-pdf | show | ratios`.
+
+**Verified live** on BCA FY2025 and Q1 2026: identities hold; Q1 profit matches the press;
+the point-in-time switch happens exactly on the day after publication.
+
+**Tests:** 191 pass (SQLite + PostgreSQL).

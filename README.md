@@ -2,7 +2,7 @@
 
 A personal quantitative research platform for the Indonesia Stock Exchange (BEI/IDX).
 
-**Current state: Phase 1, Milestones M1.1–M1.3 — data foundation, automated EOD source, corporate actions and adjusted prices.** There are no models, signals or
+**Current state: Phase 1, Milestones M1.1–M1.4 — data foundation, automated EOD source, corporate actions, adjusted prices and point-in-time bank fundamentals.** There are no models, signals or
 dashboard yet. By design (PRD §28, §30), these come only after the data infrastructure passes
 its acceptance tests.
 
@@ -140,6 +140,23 @@ uv run idx prices show BBCA --adjust total_return --start 2026-01-01 --csv bbca.
   EODHD's adjusted close and checks splits against prices.
 - `prices show` prints or exports `raw`, `split` or `total_return` series; add
   `--as-of DATE` for point-in-time adjustment.
+
+Point-in-time fundamentals (ADR 0010; banks, OJK publication-report format):
+
+```bash
+uv run idx fin import-pdf laporan-keuangan-maret-2026.pdf --ticker BBCA --published-on 2026-04-23
+```
+
+```bash
+uv run idx fin show BBCA --as-of 2026-04-24
+```
+
+```bash
+uv run idx fin ratios BBCA --as-of 2026-04-24
+```
+
+A report becomes visible the day after its publication date. `idx fin fetch-bca` (automatic
+download from BCA's IR page) is on hold until the owner decides OI-30.
 
 Other useful commands: `idx sources list`, `idx sources check <id> automated_ingestion`,
 `idx instruments universe --on 2026-11-20 --eligible-only`. Add `--help` to any command for

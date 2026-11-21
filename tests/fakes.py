@@ -72,3 +72,105 @@ class FakeEodhd:
             ]
             return 200, ctype, json.dumps(rows).encode()
         return 404, {}, b"not found"
+
+
+def fmt_id(v: int) -> str:
+    """Indonesian number format as printed in bank publication reports."""
+    if v == 0:
+        return "-"
+    s = f"{abs(v):,}".replace(",", ".")
+    return f"({s})" if v < 0 else s
+
+
+_ID_MONTH = {3: "Mar", 6: "Jun", 9: "Sep", 12: "Des"}
+
+
+def bank_publication_pages(
+    end,
+    *,
+    prev_bs,
+    prev_pl,
+    ta,
+    tl,
+    te,
+    ni,
+    nip,
+    nci,
+    pbt,
+    eps,
+    eps_prev,
+    scale_prev=0.9,
+    bank_only_factor=0.97,
+    audited=False,
+):
+    """Synthetic OJK publication report text (two statements) with self-consistent numbers.
+
+    Columns: individual current, individual prior, consolidated current, consolidated prior.
+    All amounts in Rp million, like the real report.
+    """
+
+    def d(x):
+        return f"{x.day} {_ID_MONTH[x.month]} {x.year}"
+
+    def cols(v):
+        ind = int(v * bank_only_factor)
+        return [ind, int(ind * scale_prev), v, int(v * scale_prev)]
+
+    def row(label, v):
+        return label + " " + "   ".join(fmt_id(x) for x in cols(v))
+
+    status = "Diaudit" if audited else "Tidak Diaudit"
+    # Keep the identities exact in every column: derive totals from parts per column.
+    ta_c, tl_c, te_c = cols(ta), cols(tl), cols(te)
+    tle_c = [a + b for a, b in zip(tl_c, te_c, strict=True)]
+    bs = "\n".join(
+        [
+            f"{status} Diaudit {status} Diaudit",
+            f"{d(end)} {d(prev_bs)} {d(end)} {d(prev_bs)}",
+            "ASET",
+            "1. Kas 1.000   1.000   1.000   1.000",
+            row("9. Kredit dan pembiayaan yang diberikan", int(ta * 0.6)),
+            "TOTAL ASET " + "   ".join(fmt_id(x) for x in tle_c),
+            "LIABILITAS DAN EKUITAS",
+            "LIABILITAS",
+            row("1. Giro", int(tl * 0.3)),
+            row("2. Tabungan", int(tl * 0.4)),
+            row("3. Deposito", int(tl * 0.15)),
+            "TOTAL LIABILITAS " + "   ".join(fmt_id(x) for x in tl_c),
+            "EKUITAS",
+            "TOTAL EKUITAS " + "   ".join(fmt_id(x) for x in te_c),
+            "TOTAL LIABILITAS DAN EKUITAS " + "   ".join(fmt_id(x) for x in tle_c),
+        ]
+    )
+    del ta_c
+    ni_c, nci_c = cols(ni), [0, 0, nci, int(nci * scale_prev)]
+    nip_c = [ni_c[0], ni_c[1], ni_c[2] - nci_c[2], ni_c[3] - nci_c[3]]
+    pbt_c = cols(pbt)
+    tax_c = [p - n for p, n in zip(pbt_c, ni_c, strict=True)]
+
+    def line(label, values):
+        return label + " " + "   ".join(fmt_id(x) for x in values)
+
+    del nip
+    pl = "\n".join(
+        [
+            f"{status} {status} {status} {status}",
+            f"{d(end)} {d(prev_pl)} {d(end)} {d(prev_pl)}",
+            "PENDAPATAN DAN BEBAN OPERASIONAL",
+            row("Pendapatan (Beban) Bunga Bersih", int(pbt * 1.1)),
+            row("LABA (RUGI) OPERASIONAL", pbt),
+            line("LABA (RUGI) TAHUN BERJALAN SEBELUM PAJAK", pbt_c),
+            line("Pajak penghasilan", tax_c),
+            line("LABA (RUGI) BERSIH TAHUN BERJALAN", ni_c),
+            "Laba (Rugi) Bersih Tahun Berjalan yang dapat diatribusikan",
+            "kepada :",
+            line("PEMILIK", nip_c),
+            f"KEPENTINGAN NON-PENGENDALI {fmt_id(nci_c[2])}   {fmt_id(nci_c[3])}",
+            line("TOTAL LABA (RUGI) BERSIH TAHUN BERJALAN", ni_c),
+            "Total Laba (Rugi) Komprehensif Tahun Berjalan yang dapat",
+            "diatribusikan kepada :",
+            line("PEMILIK", nip_c),
+            f"LABA BERSIH PER SAHAM (dalam satuan Rupiah) {eps}   {eps_prev}",
+        ]
+    )
+    return [bs, pl, "I. ARUS KAS DARI AKTIVITAS OPERASI\nirrelevant 1 2"]

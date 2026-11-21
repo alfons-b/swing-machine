@@ -13,13 +13,13 @@ Milestone numbering is described in `implementation-log.md`.
 | FR-003 | EOD OHLCV ingestion | Partial — CSV adapter + EODHD adapter (per-ticker on free plan, bulk on paid); live JK test passed 2026-11-21 | `ingestion/`, `ingestion/adapters/eodhd.py` | `tests/integration/test_pipeline.py`, `tests/integration/test_eodhd_pipeline.py`, `tests/unit/test_eodhd_adapter.py` |
 | FR-004 | Delisted historical data | Partial — modelled and importable; real data depends on OI-02 | `listing_history`, `status_on` | `test_csv_import_is_idempotent_and_keeps_delisted`, `test_listing_status_replay` |
 | FR-005 | Corporate action management | Done for splits, dividends, rights and bonus shares (ADR 0009); history limited by source (OI-26) | `corporate_actions/` | `tests/unit/test_factors.py`, `tests/integration/test_corporate_actions.py` |
-| FR-006 | Financial statement ingestion | Schema (point-in-time columns) | `db/models/fundamentals.py` | migration test |
-| FR-007 | Financial ratio computation | Planned (M2) | — | — |
+| FR-006 | Financial statement ingestion | Partial — banks via the OJK publication-report parser; non-banks open (OI-29) | `fundamentals/` | `tests/unit/test_bank_publication.py`, `tests/integration/test_fundamentals.py` |
+| FR-007 | Financial ratio computation | Done for the reported concepts (PER, PBV, ROE, ROA, DER, LDR, growth) | `fundamentals/ratios.py` | `test_ttm_and_ratios`, `test_cli_fin_commands` |
 | FR-008 | Data provenance | Done for prices | `raw_artifacts`, `ingestion_runs`, `ingestion_records`, FK on `daily_prices` | `test_end_to_end_csv_ingestion` |
 | FR-011 | Data cleaning | Partial (no-trade normalisation only, by design) | `validation.normalize_no_trade` | `test_no_trade_normalization` |
 | FR-012 | Duplicate detection | Done | `validation.dedupe_batch`, record hashing, unique indexes | `test_dedupe_batch`, `test_rerun_is_idempotent`, `test_conflicting_duplicates_*` |
 | FR-013 | Missing data detection | Done for sessions | `ingestion/coverage.py` | `test_missing_sessions_and_freshness` |
-| FR-018 | Point-in-time feature store | Planned (M2); PIT columns ready | `financial_reports.available_at`, bitemporal prices | — |
+| FR-018 | Point-in-time feature store | Partial — point-in-time fundamentals queries done; feature store in Phase 2 | `fundamentals/pit.py` | `test_republication_is_a_revision_and_restatement_is_flagged` |
 | FR-042 | Immutable signals | Planned; same versioning pattern as ADR 0003 | — | — |
 | FR-049 | Pipeline monitoring | Partial — run log + CLI | `ingestion_runs`, `idx ingest runs/freshness` | `test_cli_end_to_end` |
 | FR-052 | Daily report | Planned | — | — |
@@ -63,3 +63,4 @@ Milestone numbering is described in `implementation-log.md`.
 | Versioned adjustment factors with history | Done | `price_adjustment_factors.factor_version`, `test_revision_creates_new_factor_version` |
 | Raw and adjusted prices can be reconciled | Done | `idx ca reconcile`; live: 5/5 pass, max 0.000002% |
 | No look-ahead in adjustment | Done | `as_of`, `test_cumulative_applies_only_to_bars_before_ex_date_and_respects_as_of` |
+| Fundamental publication timestamps preserved (PRD §22) | Done | `published_at` + basis, `available_at` = next day; revisions kept |

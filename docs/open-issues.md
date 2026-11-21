@@ -6,7 +6,7 @@ Issues OI-01 to OI-12 come from PRD §27. They must be closed during implementat
 |---|---|---|---|
 | OI-01 | Most complete legal EOD source for all IDX instruments | Partly closed (ADR 0008) | EODHD chosen as the automated source. At Rp0 it covers about 20 tickers a day, so full-market daily coverage needs either manual IDX stock-summary imports or the EODHD paid plan (owner's budget decision). The `idx_stock_summary` column profile still needs checking against a real export. |
 | OI-02 | Historical coverage of delisted stocks | Open | EODHD lists only 97 delisted JK tickers (26 of them warrants) against 923 active: far below IDX's real delisting history. Survivorship bias remains until another source (IDX delisting announcements, entered by hand) fills the gap. |
-| OI-03 | Legal/technical access to historical financial statements | Open | Blocks M1.4. |
+| OI-03 | Legal/technical access to historical financial statements | Partly closed (ADR 0010) | Banks: OJK-standard publication reports parsed (BCA verified). IDX automation denied; EODHD fundamentals are paid. Non-banks: see OI-29. |
 | OI-04 | Licensing terms of every adapter | Partly closed | Reviewed 2026-11-21: EODHD approved; Yahoo and IDX automated access denied; Twelve Data and Invezgo paid. KSEI, OJK, BI, BPS and Sectors.app still pending. |
 | OI-05 | Database storage consumption | Open | Measure after loading the first full year (≈ 900 instruments × 245 sessions). |
 | OI-06 | GitHub Actions memory/time limits | Open | Measure in M1.6, when a scheduled workflow exists. |
@@ -32,3 +32,7 @@ Issues OI-01 to OI-12 come from PRD §27. They must be closed during implementat
 | OI-26 | Corporate actions older than 1 year | Open | The free plan returns the past year only. Older splits and dividends must be entered by hand (`idx ca import`), or those series stay unadjusted before that date. |
 | OI-27 | Rights issues, bonus shares and stock dividends | Open | Not checked in EODHD data yet. Enter them from IDX/KSEI announcements via CSV; manual entries take precedence over EODHD for the same event. |
 | OI-28 | Four live tickers show `volume_verified=False` | Open | Their split-list fetches happened before `artifact_fetches` existed. The next `idx ca fetch-eodhd` for them clears it. |
+| OI-29 | Financial statements for non-bank issuers | Open | No legal, free, structured source. Options: the owner downloads IDX XBRL instance files in a browser (an XBRL parser would then cover every issuer), a paid vendor, or a per-issuer review of IR sites (layouts differ; PDF extraction unreliable). |
+| OI-30 | BCA IR automated download on hold | **Owner decision** | BCA's firewall blocks `python-urllib` clients (403); honest custom identities get 200. Allow an honest custom client identity (for example `idx-trading/0.1 (personal research)`, without the library token)? Until then: `idx fin import-pdf`. |
+| OI-31 | Shares outstanding are implied from EPS | Open | ±0.1–0.4% because EPS is printed to Rp 1. Replace with the official share count (IDX/KSEI) when a source is available. |
+| OI-32 | Parent-only equity is not in the bank publication report | Open | BVPS and ROE use total equity (includes non-controlling interests; tiny for BCA). |

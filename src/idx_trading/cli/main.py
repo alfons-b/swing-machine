@@ -27,6 +27,7 @@ inst_app = typer.Typer(help="Instrument master", no_args_is_help=True)
 ingest_app = typer.Typer(help="EOD ingestion", no_args_is_help=True)
 ca_app = typer.Typer(help="Corporate actions and adjustment factors", no_args_is_help=True)
 prices_app = typer.Typer(help="Price series (raw / split / total-return)", no_args_is_help=True)
+fin_app = typer.Typer(help="Point-in-time fundamentals (financial reports, ratios)", no_args_is_help=True)
 for sub, name in (
     (db_app, "db"),
     (sources_app, "sources"),
@@ -35,6 +36,7 @@ for sub, name in (
     (ingest_app, "ingest"),
     (ca_app, "ca"),
     (prices_app, "prices"),
+    (fin_app, "fin"),
 ):
     app.add_typer(sub, name=name)
 
@@ -760,6 +762,148 @@ def _replay_corporate_actions(source: str, supersede: bool) -> None:
     typer.echo(f"run {summary.run_id} {summary.status.value}: {summary.counts}")
     if summary.status.value == "failed":
         raise typer.Exit(code=2)
+
+
+@fin_app.command("fetch-bca")
+def fin_fetch_bca(
+    limit: Annotated[int, typer.Option(help="Max new PDFs to download this run")] = 8,
+) -> None:
+    """Download new BCA quarterly publication reports from its IR page and parse them."""
+    from idx_trading.db.models import ArtifactFetch
+    from idx_trading.fundamentals.adapters import BcaIrAdapter
+    from idx_trading.fundamentals.pipeline import FinancialReportPipeline
+    from idx_trading.ingestion.archive import RawArchive
+    from idx_trading.ingestion.http import HttpClient
+    from idx_trading.ingestion.schemas import FetchRequest
+
+    st = get_settings()
+    with _db() as s:
+        done = {
+            f.origin
+            for f in s.scalars(
+                select(ArtifactFetch).where(
+                    ArtifactFetch.source_id == "bca_ir", ArtifactFetch.kind == "bank_publication_quarterly"
+                )
+            )
+        }
+    client = HttpClient(min_interval_seconds=2.0)  # polite: self-imposed limit (ADR 0010)
+    req = FetchRequest(options={"skip_urls": sorted(o for o in done if o), "limit": limit})
+    try:
+        with _factory() as factory:
+            summary = FinancialReportPipeline(
+                factory, RawArchive(st.raw_archive_dir), calendar_code=st.calendar_code
+            ).run(BcaIrAdapter(client), req, job_name="bca_ir_financial_reports")
+    except IdxTradingError as exc:
+        _fail(exc)
+    typer.echo(
+        f"run {summary.run_id} {summary.status.value}: {summary.counts} requests={client.requests_sent}"
+    )
+    if summary.status.value == "failed" and summary.counts.get("received"):
+        raise typer.Exit(code=2)
+
+
+@fin_app.command("import-pdf")
+def fin_import_pdf(
+    file: Path,
+    ticker: Annotated[str, typer.Option()],
+    published_on: Annotated[str, typer.Option(help="Publication date YYYY-MM-DD (from the IDX/issuer site)")],
+    origin_url: Annotated[str | None, typer.Option(help="Where the file was downloaded from")] = None,
+    date_from_filename: Annotated[
+        bool, typer.Option(help="The publication date is the file name's date prefix")
+    ] = False,
+) -> None:
+    """Import a bank publication report PDF you saved yourself."""
+    from idx_trading.fundamentals.adapters import ManualPublicationAdapter
+    from idx_trading.fundamentals.pipeline import FinancialReportPipeline
+    from idx_trading.ingestion.archive import RawArchive
+    from idx_trading.ingestion.schemas import FetchRequest
+
+    st = get_settings()
+    req = FetchRequest(
+        paths=(str(file),),
+        options={
+            "ticker": ticker,
+            "published_on": published_on,
+            "origin_url": origin_url,
+            "published_at_basis": "filename_date" if date_from_filename else "stated_by_owner",
+        },
+    )
+    try:
+        with _factory() as factory:
+            summary = FinancialReportPipeline(
+                factory, RawArchive(st.raw_archive_dir), calendar_code=st.calendar_code
+            ).run(ManualPublicationAdapter(), req, job_name="manual_financial_report")
+    except (IdxTradingError, ValueError) as exc:
+        _fail(exc)
+    typer.echo(f"run {summary.run_id} {summary.status.value}: {summary.counts}")
+    if summary.status.value == "failed":
+        raise typer.Exit(code=2)
+
+
+@fin_app.command("show")
+def fin_show(
+    ticker: str,
+    as_of: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
+    basis: str = "consolidated",
+) -> None:
+    """Facts known on --as-of for the latest available period (point in time)."""
+    from idx_trading.clock import exchange_today
+    from idx_trading.db.models import Instrument
+    from idx_trading.fundamentals.concepts import CONCEPTS
+    from idx_trading.fundamentals.pit import fact_as_of, latest_period
+    from idx_trading.instruments import InstrumentService
+
+    d = as_of.date() if as_of else exchange_today()
+    with _db() as s:
+        iid = InstrumentService(s).try_resolve(ticker, d)
+        inst = s.get(Instrument, iid) if iid else None
+        if inst is None:
+            _fail(IdxTradingError(f"{ticker} not found on {d}"))
+        assert inst is not None
+        p = latest_period(s, inst.issuer_id, d)
+        if p is None:
+            typer.echo(f"no report available on {d}")
+            return
+        typer.echo(f"{ticker} as of {d}: latest period {p} ({basis})")
+        for name, c in CONCEPTS.items():
+            f = fact_as_of(s, inst.issuer_id, name, p, d, basis)
+            if f is not None:
+                typer.echo(f"  {name:30} {f.value:>28,.0f} {c.unit:10} report {f.report_id}")
+
+
+@fin_app.command("ratios")
+def fin_ratios(
+    ticker: str,
+    as_of: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"])] = None,
+) -> None:
+    """Point-in-time valuation and quality ratios (FR-007)."""
+    from idx_trading.clock import exchange_today
+    from idx_trading.fundamentals.ratios import compute_ratios
+    from idx_trading.instruments import InstrumentService
+
+    d = as_of.date() if as_of else exchange_today()
+    with _db() as s:
+        iid = InstrumentService(s).try_resolve(ticker, d)
+        if iid is None:
+            _fail(IdxTradingError(f"{ticker} not found on {d}"))
+        assert iid is not None
+        r = compute_ratios(s, iid, d)
+    typer.echo(f"{ticker} as of {d} (latest period {r.period_end}, price {r.price} on {r.price_date})")
+    pct = {"roe", "roa", "ni_growth_yoy", "ldr"}
+    for k, v in r.as_dict().items():
+        if k in ("period_end", "price", "price_date"):
+            continue
+        if v is None:
+            shown = "n/a"
+        elif k in pct:
+            shown = f"{v:.2%}"
+        elif k == "shares_implied":
+            shown = f"{v:,.0f} (±{r.shares_rel_uncertainty:.2%})"
+        else:
+            shown = f"{v:,.2f}"
+        typer.echo(f"  {k:16} {shown}")
+    for n in r.notes:
+        typer.echo(f"  note: {n}")
 
 
 @sources_app.command("check")

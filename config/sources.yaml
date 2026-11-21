@@ -77,6 +77,9 @@ sources:
       Reviewed 2026-11-21. Every request from automation, including robots.txt, gets a
       Cloudflare "Attention Required" challenge (HTTP 403). Passing that challenge would
       be bypassing an access restriction (PRD 6.2), so automated access is NOT allowed.
+      Re-checked for M1.4: the new front end www.idx.id is reachable, but it loads all
+      data and files from www.idx.co.id; reaching that API via another hostname would
+      sidestep the same protection, so it is not used.
       IDX sells historical/EOD data under the IDX Data Services licence (priced
       catalogue). Manual browser downloads by the owner stay possible via `manual_csv`;
       the website terms page itself could not be fetched and is still unreviewed.
@@ -235,3 +238,41 @@ sources:
     permissions:
       - purpose: automated_ingestion
         status: pending_review
+
+  - source_id: bca_ir
+    source_name: PT Bank Central Asia Tbk — investor relations (bca.co.id)
+    source_type: issuer_ir
+    source_url: https://www.bca.co.id/id/tentang-bca/hubungan-investor/laporan-presentasi/laporan-keuangan
+    access_method: web
+    license_type: public_regulatory_disclosure
+    terms_reference: https://www.bca.co.id/en/Syarat-dan-Ketentuan
+    rate_limit: "Self-imposed: 1 request / 2 s, only files not fetched before"
+    update_frequency: quarterly
+    reliability_score: 0.9
+    source_status: active
+    notes: >-
+      Reviewed 2026-11-21 (ADR 0010). OJK-mandated quarterly publication reports. The
+      site's terms page lists only product terms (KlikBCA, cards, ...) and no website or
+      content terms; robots.txt does not disallow the report paths; the file host
+      pustaka.bca.co.id has no robots.txt. Use is private analysis of published
+      figures, no redistribution. Automated download is on hold (see permission note).
+    permissions:
+      - purpose: automated_ingestion
+        status: pending_review
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: docs/adr/0010-point-in-time-fundamentals.md
+        notes: >-
+          Held: the site's firewall answers HTTP 403 to clients identifying as python-urllib
+          (honest custom identities got 200). Changing the client identity only to pass that
+          filter would be evading an access control, so this waits for the owner's decision.
+      - purpose: raw_archive
+        status: approved
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: docs/adr/0010-point-in-time-fundamentals.md
+      - purpose: redistribution
+        status: denied
+        reviewed_at: 2026-11-21
+        reviewed_by: claude-agent (delegated by system owner)
+        evidence_url: docs/adr/0010-point-in-time-fundamentals.md
