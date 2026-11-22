@@ -14,6 +14,7 @@ from idx_trading.db.models.market import DailyPrice
 from idx_trading.db.models.reference import (
     Instrument,
     InstrumentClassification,
+    InstrumentShareCount,
     Issuer,
     IssuerNameHistory,
     ListingHistory,
@@ -35,6 +36,7 @@ __all__ = [
     "IngestionRun",
     "Instrument",
     "InstrumentClassification",
+    "InstrumentShareCount",
     "Issuer",
     "IssuerNameHistory",
     "ListingHistory",

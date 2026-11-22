@@ -14,7 +14,7 @@ Issues OI-01 to OI-12 come from PRD §27. They must be closed during implementat
 | OI-08 | Free-tier operational capacity (Supabase, Cloudflare) | Open | Phase 5. |
 | OI-09 | Empirical liquidity cutoffs | Open | Needs price history. Base eligibility rule is ready (`universe_on`). |
 | OI-10 | Drawdown tolerance | Open | Phase 3. |
-| OI-11 | Transaction cost assumptions for the intended broker | Open | Phase 3. |
+| OI-11 | Transaction cost assumptions for the intended broker | Closed: Stockbit, buy 0.1513% / sell 0.2513% incl. levies and taxes (`config/trading.yaml`); capital Rp 100 million |
 | OI-12 | Minimum statistical sample per horizon | Open | Phase 2/3. |
 | OI-13 | Trading sessions before ~2006 | Open | `exchange_calendars` rules for older years look incomplete (Dec 2002 = 13 sessions). Check against observed trading days. |
 | OI-14 | Check XIDX holidays against official IDX announcements | Partly closed | 2025-11-21 → 2026-11-20: the calendar's 239 sessions match EODHD's trading days exactly for 5 large caps. Older years still unchecked. | Correct rows by hand with `source_id` ≠ library; a reseed keeps them. |
@@ -26,7 +26,7 @@ Issues OI-01 to OI-12 come from PRD §27. They must be closed during implementat
 | OI-20 | Scheduled EOD workflow | Partly closed: `idx daily` (ADR 0011), scheduled locally; the GitHub Actions workflow waits for the operational database | No cloud database yet (Supabase sync is Phase 5), so for now schedule `idx ingest eodhd --universe` locally (Windows Task Scheduler or cron, after 17:30 WIB). Add a GitHub Actions workflow once the operational database exists. |
 | OI-21 | EODHD instrument types are unreliable | Open | Delisted warrants (`-W`) are labelled "Common Stock". Classify by ticker suffix and the IDX master, never by EODHD `Type` alone. |
 | OI-22 | EODHD volume for BBCA is often not a multiple of 100 | Watch | Scattered across the year, no matching price jump, so not a split adjustment. Probably odd-lot or negotiated-market volume is included. Treat EODHD volume as total volume of unknown composition. |
-| OI-23 | Listing dates are needed for universe eligibility | Open | Instruments without a listing history now have status `unknown` and are excluded from the BUY universe. Import the IDX company list (with listing dates) by hand to make them eligible. |
+| OI-23 | Listing dates are needed for universe eligibility | Closed 2026-11-22: owner's IDX stock list imported (944 stocks, listing dates, boards, listed shares); 884 BUY-eligible | Instruments without a listing history now have status `unknown` and are excluded from the BUY universe. Import the IDX company list (with listing dates) by hand to make them eligible. |
 | OI-24 | The fetch log lives only in the database | Closed by M1.6 when backups run | `artifact_fetches` is not in the file archive, so a database lost without a backup also loses which tickers were checked. M1.6 backups must include it, or the archive should also write a fetch log. |
 | OI-25 | No announcement dates for JK corporate actions from EODHD | Open | Declaration, record and payment dates are null. Point-in-time is by ex-date only. Enter announcement dates by hand for events that matter to signal timing. |
 | OI-26 | Corporate actions older than 1 year | Open | The free plan returns the past year only. Older splits and dividends must be entered by hand (`idx ca import`), or those series stay unadjusted before that date. |
@@ -40,3 +40,5 @@ Issues OI-01 to OI-12 come from PRD §27. They must be closed during implementat
 | OI-34 | EODHD sometimes serves fractional "raw" prices | Handled | 308 bars / 12 stocks (e.g. FASW constant 5,312.4971 for 238 days). Rule `price_not_integer` rejects them at ingest and `idx ingest revalidate` marks stored ones invalid. Those stocks need another price source (manual IDX file). |
 | OI-35 | Large price drops in DSSA, CYBR, MEGA, FORU | Open | Probably splits or rights issues. Fetch their corporate actions (`idx ca fetch-eodhd --tickers DSSA,CYBR,MEGA,FORU`) and reconcile. |
 | OI-36 | EODHD symbol lists are not archived | Open | `fetch_symbol_list` bypasses the raw archive. Route it through the pipeline so the master import is replayable. |
+| OI-37 | Six collected tickers missing from the IDX list of 2026-11-22 | Open | ARDO, SBAT, TELE, TOYS (probably delisted), XCID, XCIS (probably ETFs mislabelled by EODHD). Waiting for the owner's delisting dates; nothing is inferred. |
+| OI-38 | Browser downloads | Open | Claude in Chrome is installed, but connectors load at session start, so this session cannot see it. Downloaded files also land on the owner's computer. Needs a session started after the connector is enabled, plus access to the download folder (Remote Control) or uploads. |

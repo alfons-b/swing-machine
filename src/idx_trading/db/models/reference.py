@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -174,3 +175,17 @@ class TradingCalendarDay(Base):
     source_id: Mapped[str | None] = mapped_column(ForeignKey("data_sources.source_id"))
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class InstrumentShareCount(Base):
+    """Listed share count as published by a source on a date (e.g. the IDX stock list)."""
+
+    __tablename__ = "instrument_share_counts"
+    __table_args__ = (UniqueConstraint("instrument_id", "as_of", "source_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[int] = mapped_column(ForeignKey("instruments.instrument_id"), index=True)
+    as_of: Mapped[date] = mapped_column(Date)
+    shares: Mapped[int] = mapped_column(BigInteger)
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("data_sources.source_id"))
+    artifact_id: Mapped[int | None] = mapped_column(ForeignKey("raw_artifacts.artifact_id"))

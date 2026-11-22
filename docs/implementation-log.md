@@ -209,3 +209,15 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
   corporate-action lists are skipped, not failed.
 - **Data package:** 219,535 rows, restore-tested, delivered to the owner outside git.
 - **Tests:** 228 pass (SQLite + PostgreSQL).
+
+## 2026-11-22 — IDX stock list, trading assumptions
+
+- `idx instruments import-idx-list` (migration 0004 `instrument_share_counts`): 944 stocks with
+  official listing dates, boards and listed shares. 27 new instruments; 917 dated. Placeholder
+  ticker starts were replaced by the listing date. Special-monitoring board stocks (60) are not
+  BUY-eligible. Six collected tickers missing from the list are reported, not delisted.
+- Bug: the Indonesian month abbreviation "Agt" (Agustus) was not recognised; 66 rows failed
+  until it was added.
+- `config/trading.yaml`: Stockbit costs (conservative 0.1513% / 0.2513%), capital Rp 100 million,
+  lot 100, 1 tick slippage per side.
+- **Tests:** 235 pass.

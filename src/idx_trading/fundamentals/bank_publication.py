@@ -31,6 +31,7 @@ _MONTHS = {
     "jul": 7,
     "agu": 8,
     "ags": 8,
+    "agt": 8,
     "aug": 8,
     "sep": 9,
     "okt": 10,

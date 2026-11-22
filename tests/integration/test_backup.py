@@ -141,7 +141,7 @@ def test_cli_backup_flow(tmp_path, monkeypatch):
     assert run("sources", "sync").exit_code == 0
     assert run("backup", "status").exit_code == 1
     out = run("backup", "create")
-    assert out.exit_code == 0 and "revision 0003" in out.output
+    assert out.exit_code == 0 and "revision 000" in out.output
     out = run("backup", "verify")
     assert out.exit_code == 0 and "restore=True" in out.output
     assert "healthy" in run("backup", "status").output

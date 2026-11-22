@@ -1158,6 +1158,34 @@ def daily(
     raise typer.Exit(code={"healthy": 0, "degraded": 1, "failed": 2}[worst])
 
 
+@inst_app.command("import-idx-list")
+def instruments_import_idx_list(
+    file: Path,
+    as_of: Annotated[datetime, typer.Option(formats=["%Y-%m-%d"], help="Date of the IDX list")],
+) -> None:
+    """Import the IDX stock list (Daftar Saham .xlsx): listing dates, boards, listed shares."""
+    from idx_trading.instruments import InstrumentService
+    from idx_trading.instruments.idx_list import import_idx_list
+
+    st = get_settings()
+    try:
+        with _db() as s:
+            r = import_idx_list(InstrumentService(s), file, as_of.date(), st.raw_archive_dir)
+    except IdxTradingError as exc:
+        _fail(exc)
+    typer.echo(
+        f"rows={r.rows} created={r.created} dated={r.dated} updated={r.updated} "
+        f"unchanged={r.unchanged} share_counts={r.share_counts} errors={len(r.errors)}"
+    )
+    typer.echo(f"  boards: {r.boards}")
+    if r.not_in_list:
+        typer.echo(
+            f"  collected but not in the IDX list ({len(r.not_in_list)}): {', '.join(r.not_in_list[:40])}"
+        )
+    for e in r.errors[:20]:
+        typer.echo(f"  error: {e}")
+
+
 @inst_app.command("import-eodhd")
 def instruments_import_eodhd() -> None:
     """Add EODHD's active JK common stocks missing from the master (1 API call).

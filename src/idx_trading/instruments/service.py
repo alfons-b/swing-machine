@@ -322,6 +322,8 @@ class InstrumentService:
             reason: str | None = None
             if inst.instrument_type != InstrumentType.COMMON_STOCK.value:
                 reason = f"instrument type {inst.instrument_type}"
+            elif (inst.board or "").lower() == "pemantauan khusus":
+                reason = "special monitoring board (full call auction)"
             elif status == ListingStatus.UNKNOWN:
                 reason = "listing status unknown (add the listing date to the instrument master)"
             elif status != ListingStatus.ACTIVE:

@@ -1,0 +1,17 @@
+# Trading assumptions used by labels, backtests and the portfolio simulator.
+# Owner input 2026-11-21: broker Stockbit, simulation capital Rp 100,000,000.
+broker: stockbit
+capital_idr: 100000000
+lot_size: 100
+costs:
+  # Fractions of traded value, including broker commission, IDX/KPEI/KSEI levy, VAT and
+  # (on sells) 0.1% final income tax. Source: rankia.id Stockbit vs Ajaib comparison,
+  # April 2026 (0.1513% / 0.2513%); other sources quote 0.15% / 0.25%. The higher,
+  # conservative figures are used. Check them against the Stockbit app's fee page.
+  buy: 0.001513
+  sell: 0.002513
+  reviewed_at: 2026-11-22
+  evidence: https://rankia.id/trading-saham-stockbit-ajaib/
+slippage:
+  # Assumed until the backtester measures it from data: one tick against us on entry and on exit.
+  ticks_per_side: 1
