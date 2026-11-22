@@ -19,6 +19,20 @@ Definition of Done).
    docs; push to `main` only with green CI; note it in `docs/implementation-log.md`.
 5. If `.env` or the database is gone (container reset), report it; do not invent data.
 
+## M1.7 — Issuer IR adapters (do first; replaces browser downloads)
+The owner could not enable the Chrome connector (2026-11-22). Fetch reports from issuers'
+own IR sites where allowed, one adapter per site, with a recorded terms/robots review (as for
+BCA, ADR 0010). Probe of 2026-11-22:
+| Issuer | Finding | Decision |
+|---|---|---|
+| BCA (BBCA) | allowed, adapter exists | automated |
+| Astra (ASII) | IR page lists PDFs (≈50 links) | review terms, then build the adapter |
+| Telkom (TLKM) | page loads its list via JavaScript | find the JSON endpoint; review |
+| BRI (BBRI), BNI (BBNI), Unilever (UNVR) | HTTP 403 to automated clients | **not automated**; owner uploads |
+| ANTAM (ANTM) | robots.txt disallows ClaudeBot and other AI crawlers | **not automated** (respect the site's wish); owner uploads |
+| Bank Mandiri (BMRI) | connection fails | retry once later; otherwise owner uploads |
+Reports the owner uploads in the chat are imported by the next run (`idx fin import-pdf`).
+
 ## Phase 2 milestones (data-independent first)
 | ID | Milestone | Done when |
 |---|---|---|

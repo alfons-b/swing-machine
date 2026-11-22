@@ -1,4 +1,7 @@
-# Financial statements to download (browser, owner's Chrome)
+# Financial statements to download
+
+Automated where an issuer's site allows it (see docs/agent-week-plan.md, M1.7); otherwise
+the owner downloads from idx.co.id and attaches the PDF in the chat.
 
 Latest interim statements (30 Sep 2026) first, then FY2025 (31 Dec 2025) for TTM.
 Order follows `config/priority_tickers.txt`. Tick an item once it is imported.
