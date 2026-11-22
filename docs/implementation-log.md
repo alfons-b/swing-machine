@@ -221,3 +221,17 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
 - `config/trading.yaml`: Stockbit costs (conservative 0.1513% / 0.2513%), capital Rp 100 million,
   lot 100, 1 tick slippage per side.
 - **Tests:** 235 pass.
+
+## 2026-11-22 — Daily run 1, M1.7 review, M2.1 feature store
+
+- **Daily run:** healthy. +2,943 bars from 16 new stocks, corporate actions for 2 more;
+  vendor reconciliation 42 pass, 1 acknowledged, 0 fail; backup restore-tested.
+- **M1.7 issuer IR review:** only BCA can be automated legitimately.
+  - Astra: the main site allows Claude bots, but its report API host's robots.txt is
+    `Disallow: /`.
+  - Telkom: the report list comes from an undisclosed script endpoint.
+  - BRI, BNI, Unilever: HTTP 403.
+  - ANTAM: robots.txt disallows ClaudeBot.
+  - Reports for these issuers come from owner uploads.
+- **M2.1** `tech_v1` feature store (ADR 0013): 19 features, look-ahead test, versioned by
+  definition hash, Parquet output. First build: 440 stocks, 103,866 rows.

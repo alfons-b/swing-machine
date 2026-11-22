@@ -27,6 +27,7 @@ inst_app = typer.Typer(help="Instrument master", no_args_is_help=True)
 ingest_app = typer.Typer(help="EOD ingestion", no_args_is_help=True)
 ca_app = typer.Typer(help="Corporate actions and adjustment factors", no_args_is_help=True)
 prices_app = typer.Typer(help="Price series (raw / split / total-return)", no_args_is_help=True)
+features_app = typer.Typer(help="Feature store (Phase 2)", no_args_is_help=True)
 backup_app = typer.Typer(help="Backups, restore tests and archive copies", no_args_is_help=True)
 fin_app = typer.Typer(help="Point-in-time fundamentals (financial reports, ratios)", no_args_is_help=True)
 for sub, name in (
@@ -39,6 +40,7 @@ for sub, name in (
     (prices_app, "prices"),
     (fin_app, "fin"),
     (backup_app, "backup"),
+    (features_app, "features"),
 ):
     app.add_typer(sub, name=name)
 
@@ -1252,6 +1254,35 @@ def instruments_import_eodhd() -> None:
     )
     for n in notes[:20]:
         typer.echo(f"  {n}")
+
+
+@features_app.command("build")
+def features_build(
+    as_of: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"], help="Point in time")] = None,
+) -> None:
+    """Build the tech_v1 feature store (data/features/tech_v1.parquet)."""
+    from idx_trading.features.store import build_features, write_features
+
+    st = get_settings()
+    with _db() as s:
+        df, man = build_features(s, as_of.date() if as_of else None)
+    path = write_features(df, man, st.data_dir / "features")
+    typer.echo(
+        f"{man.feature_set} ({man.definition_hash}): {man.instruments} instruments, {man.rows:,} rows, "
+        f"{man.first_date}..{man.last_date}, skipped {man.skipped_short_history} short histories -> {path}"
+    )
+
+
+@features_app.command("show")
+def features_show(ticker: str, last: int = 5) -> None:
+    """Print the latest feature rows for one ticker."""
+    from idx_trading.features.store import read_features
+
+    df = read_features(get_settings().data_dir / "features")
+    sub = df[df["ticker"] == ticker.upper()].tail(last)
+    if sub.empty:
+        _fail(IdxTradingError(f"{ticker} not in the feature store"))
+    typer.echo(sub.drop(columns=["instrument_id"]).to_string(index=False, float_format=lambda x: f"{x:.4f}"))
 
 
 @sources_app.command("check")
