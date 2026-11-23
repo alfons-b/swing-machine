@@ -61,6 +61,7 @@ def bars_frame(s: Session, instrument_id: int, as_of: date | None) -> pd.DataFra
                 "low": float(b.low),
                 "close": float(b.close),
                 "volume": float(b.volume or 0),
+                "raw_open": float(r.open) if r.open is not None else float("nan"),
                 "raw_close": float(r.close),
                 "raw_volume": float(r.volume or 0),
             }
@@ -124,3 +125,42 @@ def read_features(root: Path, feature_set: str = FEATURE_SET) -> pd.DataFrame:
     if feature_set == FEATURE_SET and man["definition_hash"] != definition_hash():
         raise RuntimeError(f"{feature_set} was built with other definitions: rebuild it")
     return pd.read_parquet(root / f"{feature_set}.parquet")
+
+
+def build_labels(
+    s: Session, buy: float, sell: float, ticks_per_side: int = 1, min_bars: int = MIN_BARS
+) -> tuple[pd.DataFrame, dict[str, object]]:
+    """labels_v1 for every collected stock with enough history (uses all known data)."""
+    from idx_trading.features.labels import HORIZONS, LABEL_COLUMNS, LABEL_SET, add_excess, instrument_labels
+
+    svc = InstrumentService(s)
+    frames = []
+    for m in svc.collection_universe_on(exchange_today()):
+        df = bars_frame(s, m.instrument_id, None)
+        if len(df) < min_bars:
+            continue
+        df = df.sort_values("trade_date").reset_index(drop=True)
+        lab = instrument_labels(df, buy, sell, ticks_per_side)
+        lab.insert(0, "trade_date", df["trade_date"])
+        lab.insert(0, "ticker", m.ticker)
+        lab.insert(0, "instrument_id", m.instrument_id)
+        frames.append(lab)
+    out = (
+        add_excess(pd.concat(frames, ignore_index=True))
+        if frames
+        else pd.DataFrame(columns=["instrument_id", "ticker", "trade_date", *LABEL_COLUMNS])
+    )
+    meta: dict[str, object] = {
+        "label_set": LABEL_SET,
+        "horizons": list(HORIZONS),
+        "buy_cost": buy,
+        "sell_cost": sell,
+        "ticks_per_side": ticks_per_side,
+        "rows": len(out),
+        "instruments": int(out["instrument_id"].nunique()) if len(out) else 0,
+        "built_at": datetime.now(tz=UTC).isoformat(),
+        "labelled_rows_by_horizon": {h: int(out[f"net_{h}"].notna().sum()) for h in HORIZONS}
+        if len(out)
+        else {},
+    }
+    return out, meta

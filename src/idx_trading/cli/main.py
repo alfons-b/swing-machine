@@ -1273,6 +1273,27 @@ def features_build(
     )
 
 
+@features_app.command("labels")
+def features_labels() -> None:
+    """Build labels_v1 (path-aware, multi-horizon, net of Stockbit costs)."""
+    import json as _json
+
+    from idx_trading.features.store import build_labels
+    from idx_trading.trading_config import load_trading_config
+
+    st, cfg = get_settings(), load_trading_config()
+    with _db() as s:
+        df, meta = build_labels(s, float(cfg.costs.buy), float(cfg.costs.sell), cfg.slippage.ticks_per_side)
+    root = st.data_dir / "features"
+    root.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(root / "labels_v1.parquet", index=False)
+    (root / "labels_v1.manifest.json").write_text(_json.dumps(meta, indent=2, default=str))
+    typer.echo(
+        f"labels_v1: {meta['instruments']} instruments, {meta['rows']:,} rows, "
+        f"labelled by horizon {meta['labelled_rows_by_horizon']}"
+    )
+
+
 @features_app.command("show")
 def features_show(ticker: str, last: int = 5) -> None:
     """Print the latest feature rows for one ticker."""

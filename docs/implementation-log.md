@@ -235,3 +235,14 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
   - Reports for these issuers come from owner uploads.
 - **M2.1** `tech_v1` feature store (ADR 0013): 19 features, look-ahead test, versioned by
   definition hash, Parquet output. First build: 440 stocks, 103,866 rows.
+
+## 2026-11-23 — Daily run 2, M2.2 labels
+
+- **Daily run:** healthy. +3,812 bars; 445 stocks with about a year of history; data through
+  session 2026-11-23. 9 fractional vendor bars rejected (IMJS, INET).
+- **Note for the evaluation:** at 16 calls/day the collector backfills never-fetched stocks
+  first, so already-collected stocks are not refreshed daily. Fine for this collection week; a
+  production daily refresh needs whole-market data (manual IDX file or a paid plan).
+- **M2.2** `labels_v1` (ADR 0014): next-open entry, H3–H40, net of Stockbit costs and 1-tick
+  slippage, MFE/MAE, excess vs the median. Finding: round-trip costs of about 1–4% dominate
+  short horizons, especially for stocks under Rp 100.
