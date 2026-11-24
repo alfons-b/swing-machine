@@ -19,7 +19,14 @@ Milestone numbering is described in `implementation-log.md`.
 | FR-011 | Data cleaning | Partial (no-trade normalisation only, by design) | `validation.normalize_no_trade` | `test_no_trade_normalization` |
 | FR-012 | Duplicate detection | Done | `validation.dedupe_batch`, record hashing, unique indexes | `test_dedupe_batch`, `test_rerun_is_idempotent`, `test_conflicting_duplicates_*` |
 | FR-013 | Missing data detection | Done for sessions | `ingestion/coverage.py` | `test_missing_sessions_and_freshness` |
-| FR-018 | Point-in-time feature store | Partial — point-in-time fundamentals queries done; feature store in Phase 2 | `fundamentals/pit.py` | `test_republication_is_a_revision_and_restatement_is_flagged` |
+| FR-014 | Technical features | Done (`tech_v1`, ADR 0013) | `features/technical.py`, `features/store.py` | `tests/unit/test_features.py` |
+| FR-018 | Point-in-time feature store | Done for technical features (as_of build, definition hash) and fundamentals queries | `features/store.py`, `fundamentals/pit.py` | `test_republication_is_a_revision_and_restatement_is_flagged`, feature look-ahead test |
+| FR-019 | Baseline models | Done (momentum rank, ridge, logistic; ADR 0015) | `models/estimators.py` | `test_report_is_reproducible_and_recovers_a_planted_signal` |
+| FR-020 | ML model competition | Done (LightGBM classifier/regressor vs baselines, same folds) | `models/evaluate.py` | same |
+| FR-021/022/024 | Multi-horizon targets, expected return, downside | Partial — labels (ADR 0014); predictions per horizon via `idx models evaluate --horizon` | `features/labels.py` | `tests/unit/test_labels.py` |
+| FR-023 | Calibrated probability | Partial — Brier, ECE, reliability measured; calibration step not yet applied | `models/metrics.py` | `test_calibration_metrics` |
+| FR-026 | Model registry | Done (candidate → manual approval → retired; hash-verified artifacts) | `models/registry.py`, `model_versions` | `test_approval_is_manual_and_single_per_horizon`, `test_tampered_artifact_is_refused` |
+| FR-038 | Walk-forward validation | Done (expanding window, purge by label exit date, embargo) | `models/walkforward.py` | `test_split_purges_*`, `test_no_fold_uses_the_future` |
 | FR-042 | Immutable signals | Planned; same versioning pattern as ADR 0003 | — | — |
 | FR-049 | Pipeline monitoring | Partial — run log + CLI | `ingestion_runs`, `idx ingest runs/freshness` | `test_cli_end_to_end` |
 | FR-052 | Daily report | Planned | — | — |

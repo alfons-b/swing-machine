@@ -86,15 +86,16 @@ def build_features(
             continue
         df = df.sort_values("trade_date").reset_index(drop=True)
         f = instrument_features(df)
+        f.insert(0, "raw_close", df["raw_close"])  # passthrough for price floors, not a feature
         f.insert(0, "trade_date", df["trade_date"])
         f.insert(0, "ticker", m.ticker)
         f.insert(0, "instrument_id", m.instrument_id)
         frames.append(f)
     if not frames:
-        out = pd.DataFrame(columns=["instrument_id", "ticker", "trade_date", *NAMES])
+        out = pd.DataFrame(columns=["instrument_id", "ticker", "trade_date", "raw_close", *NAMES])
     else:
         out = cross_sectional(pd.concat(frames, ignore_index=True))
-        out = out[["instrument_id", "ticker", "trade_date", *NAMES]]
+        out = out[["instrument_id", "ticker", "trade_date", "raw_close", *NAMES]]
     man = FeatureManifest(
         FEATURE_SET,
         definition_hash(),

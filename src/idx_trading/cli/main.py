@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from sqlalchemy import select
@@ -29,6 +29,7 @@ ca_app = typer.Typer(help="Corporate actions and adjustment factors", no_args_is
 prices_app = typer.Typer(help="Price series (raw / split / total-return)", no_args_is_help=True)
 features_app = typer.Typer(help="Feature store (Phase 2)", no_args_is_help=True)
 backup_app = typer.Typer(help="Backups, restore tests and archive copies", no_args_is_help=True)
+models_app = typer.Typer(help="Models: walk-forward evaluation and registry (Phase 2)", no_args_is_help=True)
 fin_app = typer.Typer(help="Point-in-time fundamentals (financial reports, ratios)", no_args_is_help=True)
 for sub, name in (
     (db_app, "db"),
@@ -41,6 +42,7 @@ for sub, name in (
     (fin_app, "fin"),
     (backup_app, "backup"),
     (features_app, "features"),
+    (models_app, "models"),
 ):
     app.add_typer(sub, name=name)
 
@@ -1304,6 +1306,134 @@ def features_show(ticker: str, last: int = 5) -> None:
     if sub.empty:
         _fail(IdxTradingError(f"{ticker} not in the feature store"))
     typer.echo(sub.drop(columns=["instrument_id"]).to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+
+
+def _floor() -> Any:
+    from idx_trading.models.dataset import Floor
+    from idx_trading.trading_config import load_trading_config
+
+    u = load_trading_config().universe
+    return Floor(float(u.min_price_idr), float(u.min_adv_idr))
+
+
+def _reports_dir() -> Path:
+    return get_settings().data_dir / "models" / "reports"
+
+
+@models_app.command("evaluate")
+def models_evaluate(
+    horizon: Annotated[int, typer.Option(help="Label horizon in sessions")] = 5,
+    models: Annotated[str, typer.Option(help="Comma-separated model names")] = (
+        "momentum,ridge,logistic,lgbm_cls,lgbm_reg"
+    ),
+    min_train: int = 60,
+    test_size: int = 20,
+    embargo: int = 2,
+) -> None:
+    """Walk-forward comparison report (data/models/reports/wf-h<H>-<fingerprint>.{json,md})."""
+    from idx_trading.models.dataset import load_dataset
+    from idx_trading.models.evaluate import EvalConfig, render_markdown, to_json, walk_forward
+
+    try:
+        data, info = load_dataset(get_settings().data_dir / "features", horizon, _floor())
+        cfg = EvalConfig(
+            horizon, tuple(m.strip() for m in models.split(",") if m.strip()), min_train, test_size, embargo
+        )
+        report, _ = walk_forward(data, cfg, info)
+    except (RuntimeError, ValueError, FileNotFoundError) as exc:
+        _fail(IdxTradingError(str(exc)))
+    out = _reports_dir()
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"wf-h{horizon}-{report['data']['fingerprint']}"
+    (out / f"{stem}.json").write_text(to_json(report))
+    md = render_markdown(report)
+    (out / f"{stem}.md").write_text(md)
+    typer.echo(md)
+    typer.echo(f"-> {out / stem}.json")
+
+
+@models_app.command("train")
+def models_train(
+    name: str,
+    horizon: Annotated[int, typer.Option(help="Label horizon in sessions")] = 5,
+) -> None:
+    """Fit NAME on all eligible rows and register it as a candidate (never auto-approved)."""
+    import json as _json
+
+    from idx_trading.models.dataset import FEATURES, load_dataset
+    from idx_trading.models.evaluate import frame_fingerprint
+    from idx_trading.models.registry import ModelRegistry
+
+    st = get_settings()
+    try:
+        data, _ = load_dataset(st.data_dir / "features", horizon, _floor())
+    except (RuntimeError, FileNotFoundError) as exc:
+        _fail(IdxTradingError(str(exc)))
+    fp = frame_fingerprint(data[["instrument_id", "trade_date", *FEATURES, "net"]])
+    rpt = _reports_dir() / f"wf-h{horizon}-{fp}.json"
+    evaluation = None
+    if rpt.exists():
+        r = _json.loads(rpt.read_text())
+        if name in r["results"]:
+            evaluation = {"report": rpt.name, "config": r["config"], **r["results"][name]}
+    if evaluation is None:
+        typer.echo(
+            f"warning: no walk-forward report for {name} on this data ({rpt.name}); it cannot be approved"
+        )
+    with _db() as s:
+        mv = ModelRegistry(s, st.data_dir / "models").train_and_register(name, horizon, data, evaluation)
+        typer.echo(
+            f"{mv.model_id}: {mv.status}, {mv.train_rows:,} rows {mv.train_first_date}..{mv.train_last_date}"
+        )
+
+
+@models_app.command("list")
+def models_list() -> None:
+    """All registered model versions."""
+    from idx_trading.models.registry import ModelRegistry
+
+    with _db() as s:
+        for mv in ModelRegistry(s, get_settings().data_dir / "models").list():
+            ic = ((mv.evaluation or {}).get("overall") or {}).get("ic")
+            ic_s = f"{ic:.3f}" if isinstance(ic, float) else "-"
+            typer.echo(
+                f"{mv.model_id:40} H{mv.horizon:<3} {mv.status:9} oos_ic={ic_s:7} "
+                f"{mv.train_last_date} {mv.decided_by or ''}"
+            )
+
+
+@models_app.command("approve")
+def models_approve(
+    model_id: str,
+    by: Annotated[str, typer.Option(help="Who approves (the owner)")],
+    note: Annotated[str, typer.Option(help="Why")],
+) -> None:
+    """Manual approval for production use (retires the previous approved model of that horizon)."""
+    from idx_trading.models.registry import ModelRegistry, RegistryError
+
+    try:
+        with _db() as s:
+            mv = ModelRegistry(s, get_settings().data_dir / "models").approve(model_id, by, note)
+            typer.echo(f"{mv.model_id}: {mv.status} by {mv.decided_by}")
+    except RegistryError as exc:
+        _fail(IdxTradingError(str(exc)))
+
+
+@models_app.command("reject")
+def models_reject(
+    model_id: str,
+    by: Annotated[str, typer.Option(help="Who decides")],
+    note: Annotated[str, typer.Option(help="Why")],
+) -> None:
+    """Reject a candidate."""
+    from idx_trading.models.registry import ModelRegistry, RegistryError
+
+    try:
+        with _db() as s:
+            mv = ModelRegistry(s, get_settings().data_dir / "models").reject(model_id, by, note)
+            typer.echo(f"{mv.model_id}: {mv.status}")
+    except RegistryError as exc:
+        _fail(IdxTradingError(str(exc)))
 
 
 @sources_app.command("check")

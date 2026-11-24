@@ -125,3 +125,12 @@ class ReconciliationStatus(StrEnum):
     PASS = "pass"
     WARN = "warn"
     FAIL = "fail"
+
+
+class ModelStatus(StrEnum):
+    """Model lifecycle (PRD: production models need manual approval)."""
+
+    CANDIDATE = "candidate"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETIRED = "retired"

@@ -246,3 +246,20 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
 - **M2.2** `labels_v1` (ADR 0014): next-open entry, H3–H40, net of Stockbit costs and 1-tick
   slippage, MFE/MAE, excess vs the median. Finding: round-trip costs of about 1–4% dominate
   short horizons, especially for stocks under Rp 100.
+
+## 2026-11-24 — Daily run 3, M2.3 models
+
+- **Daily run:** healthy. +3,819 bars; 461 stocks with about a year of history; data through
+  2026-11-24. Vendor reconciliation: 46 pass, 1 acknowledged, 0 fail.
+- **M2.3** walk-forward evaluation and model registry (ADR 0015, migration 0005):
+  - Purging uses each label's exit date; labels_v1 now stores `end_H`.
+  - Price/liquidity floor: Rp 200 and Rp 1 bn/day.
+  - Five candidates: momentum, ridge, logistic, LightGBM classifier and LightGBM regressor.
+  - Metrics: rank IC, top-quintile net return, spread, Brier, ECE, reliability.
+  - Manual approval only.
+- **Findings:**
+  - Ridge and LightGBM regressors rank with OOS IC 0.13–0.19 across H5–H40. The signal is low
+    volatility in a falling year.
+  - Even the top quintile loses after costs.
+  - Classifier probabilities are uncalibrated.
+- Reports are byte-reproducible. 261 tests pass.

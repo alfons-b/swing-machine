@@ -25,6 +25,15 @@ class Slippage(BaseModel):
     ticks_per_side: int = Field(ge=0, le=10)
 
 
+class Universe(BaseModel):
+    """Price/liquidity floor for research and BUY eligibility (ADR 0014, ADR 0015)."""
+
+    model_config = ConfigDict(extra="forbid")
+    min_price_idr: Decimal = Field(default=Decimal(200), ge=0)
+    min_adv_idr: Decimal = Field(default=Decimal(1_000_000_000), ge=0)
+    note: str | None = None
+
+
 class TradingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     broker: str
@@ -32,6 +41,7 @@ class TradingConfig(BaseModel):
     lot_size: int = Field(gt=0)
     costs: Costs
     slippage: Slippage
+    universe: Universe = Universe()
 
     @property
     def round_trip_cost(self) -> Decimal:

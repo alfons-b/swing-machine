@@ -46,6 +46,8 @@ def instrument_labels(df: pd.DataFrame, buy: float, sell: float, ticks_per_side:
         out[f"net_{h}"] = net.where(valid)
         out[f"mfe_{h}"] = (hi / entry - 1).where(valid)
         out[f"mae_{h}"] = (lo / entry - 1).where(valid)
+        if "trade_date" in df:  # exit session date: lets walk-forward purge exactly (ADR 0015)
+            out[f"end_{h}"] = df["trade_date"].shift(-h).where(valid)
     return out
 
 

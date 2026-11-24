@@ -11,6 +11,7 @@ from idx_trading.db.models.ingestion import (
     ReconciliationResult,
 )
 from idx_trading.db.models.market import DailyPrice
+from idx_trading.db.models.modelling import ModelVersion
 from idx_trading.db.models.reference import (
     Instrument,
     InstrumentClassification,
@@ -40,6 +41,7 @@ __all__ = [
     "Issuer",
     "IssuerNameHistory",
     "ListingHistory",
+    "ModelVersion",
     "PriceAdjustmentFactor",
     "RawArtifact",
     "ReconciliationResult",
