@@ -263,3 +263,18 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
   - Even the top quintile loses after costs.
   - Classifier probabilities are uncalibrated.
 - Reports are byte-reproducible. 261 tests pass.
+
+## 2026-11-25 — Owner uploads: nine more financial reports
+
+- **Imported:**
+  - ANTM FY2025 and 9M2026;
+  - BBRI, BBNI, TLKM, ASII, UNVR, INDF and ICBP for 9M2026.
+- **Not imported:** AMMN was rejected because of an after-tax item; see OI-41.
+- **Publication dates:**
+  - All but one use the earliest dated press report (`press_report_date`).
+  - ICBP uses the new conservative basis `received_by_owner` (OI-42).
+- **Parser:** generalised for ten issuer layouts; see the ADR 0012 addendum.
+  - All identities pass.
+  - Comparatives in ANTM 9M2026 match its FY2025 report exactly.
+- **Ratios:** parent equity is derived as total equity − NCI when both are reported (OI-43).
+- **Still missing:** PER, ROE and ROA need each issuer's FY2025 report (queue updated).

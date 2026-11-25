@@ -4,8 +4,8 @@ Definitions (consolidated basis):
   EPS_TTM   trailing-12-month reported EPS, restated for share-count events after period end
   PER       raw close on as_of / EPS_TTM                      (None if EPS_TTM <= 0)
   shares    net_income_parent_YTD / eps_basic_YTD  -> *implied*, EPS is printed rounded
-  BVPS      total_equity / shares                  (total equity incl. NCI: the bank
-            publication report does not split out parent equity)
+  BVPS      parent equity / shares; parent equity is reported, or total equity - NCI when
+            both are reported, else total equity (bank publication reports; noted)
   PBV       raw close / BVPS
   ROE       NI_parent_TTM / avg(total_equity at P, at P-1y)
   ROA       NI_TTM / avg(total_assets at P, at P-1y)
@@ -146,6 +146,12 @@ def compute_ratios(s: Session, instrument_id: int, as_of: date) -> Ratios:
         ni_ytd, eps_ytd = inst_val("net_income_parent", p), inst_val("eps_basic", p)
         assets = inst_val("total_assets", p)
         equity_parent = inst_val("equity_parent", p)
+        if equity_parent is None:
+            # exact identity from two reported lines: total equity = parent + NCI
+            te, nci = inst_val("total_equity", p), inst_val("equity_nci", p)
+            if te is not None and nci is not None:
+                equity_parent = te - nci
+                r.notes.append("parent equity = total equity - non-controlling interests (both reported)")
         equity = equity_parent if equity_parent is not None else inst_val("total_equity", p)
         if equity_parent is None:
             r.notes.append("BVPS/ROE use total equity (parent equity not reported)")
@@ -166,6 +172,10 @@ def compute_ratios(s: Session, instrument_id: int, as_of: date) -> Ratios:
         ni_parent_ttm = ttm(s, issuer, "net_income_parent", p, as_of)
         ni_ttm = ttm(s, issuer, "net_income", p, as_of)
         eq_ly = inst_val("equity_parent" if equity_parent is not None else "total_equity", p_ly)
+        if eq_ly is None and equity_parent is not None:
+            te_ly, nci_ly = inst_val("total_equity", p_ly), inst_val("equity_nci", p_ly)
+            if te_ly is not None and nci_ly is not None:
+                eq_ly = te_ly - nci_ly
         as_ly = inst_val("total_assets", p_ly)
         if ni_parent_ttm and equity is not None:
             avg = (equity + eq_ly) / 2 if eq_ly is not None else equity

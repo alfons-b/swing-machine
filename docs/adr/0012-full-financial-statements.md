@@ -64,3 +64,25 @@ equity. Notes say which was used.
   archive). It is restored with `idx backup restore --dir …` and the raw files are copied to
   `data/raw`. Vendor data is never committed to the public repository (redistribution is
   denied in the registry).
+
+## Addendum 2026-11-25 — layouts of ten more issuers
+
+Owner uploads: BBRI, BBNI, TLKM, ASII, UNVR, INDF, ICBP and AMMN (30 Sep 2026), plus ANTM
+(31 Dec 2025 and 30 Sep 2026). Nine were imported; AMMN was rejected (OI-41). Every case below
+has a synthetic-text test in `tests/unit/test_full_statements_layouts.py`.
+
+| Variant | Seen in | Handling |
+|---|---|---|
+| Indonesian number format (`42.306.668`, `146,31`) | BBRI, BBNI, TLKM, INDF, ICBP, ANTM | Detected per document by counting `.ddd` versus `,ddd` groups. Billions with a single group count too, which matters for TLKM. |
+| Note references between the value columns (`5,44`, `2ac`, `2q, 14a`, `2z.iii`) | BBRI, UNVR, TLKM | Note-like tokens inside a value run are dropped. |
+| Comparative date only in the column headers | BBRI, ANTM, INDF | The title gives the current date. The headers give the comparative: either a full date, or day/month plus a header year. Annual statements use the prior year-end. |
+| Vertical layout: numbers on their own lines, English after them | INDF | Consecutive number-only lines are joined and blank lines ignored. Indonesian-only patterns are a fallback. |
+| Title only on the first statement page | INDF | An untitled page with a "Catatan/" column header continues the statement. |
+| Income-statement pages titled "Laporan Posisi Keuangan" | ICBP | Pages with a period header ("periode … bulan yang berakhir") are treated as the income statement. |
+| Parent-only statements appended | BBRI | Only the first run of statement pages is used. |
+| Wrapped bilingual labels ("LABA SEBELUM / BEBAN PAJAK") | BBRI, BBNI | The widest matching label wins; previously the narrowest won. |
+| Tax printed as current + deferred without a total | TLKM | The two lines are summed, and the identity PBT − tax = NI still checks the result. |
+| Discontinued operations | UNVR | New concepts `profit_continuing` and `profit_discontinued`. The identities become PBT − tax = continuing profit and continuing + discontinued = NI. No total EPS is invented. |
+| Stand-alone statements (no subsidiaries) | UNVR | Owners' profit = net income. |
+| Units "(Dinyatakan / Dalam / Angka dalam tabel disajikan dalam … miliaran …)" | ASII, UNVR, TLKM | Broader units pattern, including billions. |
+| AES-encrypted PDFs with an empty user password | BBRI | Read as any viewer reads them (`cryptography`). Password-protected files remain unreadable. |

@@ -43,6 +43,10 @@ CONCEPTS: dict[str, Concept] = {
         Concept("profit_before_tax", Kind.DURATION, "IDR", "Profit before tax"),
         Concept("income_tax", Kind.DURATION, "IDR", "Income tax expense (positive = expense)"),
         Concept("net_income", Kind.DURATION, "IDR", "Net profit for the period"),
+        Concept("profit_continuing", Kind.DURATION, "IDR", "Profit from continuing operations"),
+        Concept(
+            "profit_discontinued", Kind.DURATION, "IDR", "Profit from discontinued operations, net of tax"
+        ),
         Concept("net_income_parent", Kind.DURATION, "IDR", "Net profit attributable to owners of the parent"),
         Concept(
             "net_income_nci", Kind.DURATION, "IDR", "Net profit attributable to non-controlling interests"

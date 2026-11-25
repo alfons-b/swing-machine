@@ -834,8 +834,12 @@ def fin_import_pdf(
     date_from_press: Annotated[
         bool, typer.Option(help="The publication date is the earliest press report of the figures")
     ] = False,
+    date_received: Annotated[
+        bool,
+        typer.Option(help="No publication date known: the date is when the owner supplied the file"),
+    ] = False,
 ) -> None:
-    """Import a bank publication report PDF you saved yourself."""
+    """Import a financial report PDF (bank publication report or full statements) you saved."""
     from idx_trading.fundamentals.adapters import ManualPublicationAdapter
     from idx_trading.fundamentals.pipeline import FinancialReportPipeline
     from idx_trading.ingestion.archive import RawArchive
@@ -853,6 +857,8 @@ def fin_import_pdf(
                 if date_from_filename
                 else "press_report_date"
                 if date_from_press
+                else "received_by_owner"
+                if date_received
                 else "stated_by_owner"
             ),
         },

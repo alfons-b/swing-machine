@@ -135,7 +135,9 @@ class ManualPublicationAdapter(FinancialReportAdapter):
         if not content.startswith(b"%PDF"):
             raise ValueError(f"{path.name} is not a PDF")
         basis = str(request.options.get("published_at_basis") or "stated_by_owner")
-        if basis not in {"stated_by_owner", "filename_date", "press_report_date"}:
+        # received_by_owner: no publication date could be established, so the date the owner
+        # handed the file over is used. Later than the real one, never earlier: no look-ahead.
+        if basis not in {"stated_by_owner", "filename_date", "press_report_date", "received_by_owner"}:
             raise ValueError(f"unknown published_at_basis {basis!r}")
         return [
             RawPayload(
