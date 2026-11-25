@@ -278,3 +278,24 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
   - Comparatives in ANTM 9M2026 match its FY2025 report exactly.
 - **Ratios:** parent equity is derived as total equity − NCI when both are reported (OI-43).
 - **Still missing:** PER, ROE and ROA need each issuer's FY2025 report (queue updated).
+
+## 2026-11-25 — Daily run 4, M2.4 recommendations
+
+- **Daily run:** healthy.
+  - +3,445 bars; 475 stocks with about a year of history.
+  - Data through 2026-11-25. Vendor reconciliation: 48 pass, 1 acknowledged.
+- **M2.4** recommendation engine and immutable signal registry (ADR 0016, migration 0006):
+  - BUY/WATCH/AVOID with recorded reasons.
+  - Entry, stop, target and expiry on IDX ticks; position size in lots.
+  - Production needs an approved model; everything else is shadow.
+  - PostgreSQL triggers make signals immutable.
+- **Finding:** raw regression scores overstate expected return about 3×. Walk-forward reports now
+  carry an out-of-sample calibration line, which signals must use.
+  - With it, the 20 Nov shadow run gives 0 BUY / 27 WATCH. Without it, it would have given 7
+    false BUYs.
+- New calibrated candidates were registered:
+  - ridge-h5-825ace3fbf87
+  - lgbm_reg-h5-48607390d8bc
+  - ridge-h10-3cf51772a422
+  - lgbm_reg-h10-7f0ca0328849
+- 282 tests pass.

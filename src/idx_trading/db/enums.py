@@ -134,3 +134,16 @@ class ModelStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     RETIRED = "retired"
+
+
+class SignalAction(StrEnum):
+    BUY = "BUY"
+    WATCH = "WATCH"
+    AVOID = "AVOID"
+
+
+class SignalMode(StrEnum):
+    #: from an owner-approved model, for the latest session
+    PRODUCTION = "production"
+    #: from a candidate model or a past date: research only, never shown as a recommendation
+    SHADOW = "shadow"

@@ -111,7 +111,19 @@ def _summarise(p: pd.DataFrame) -> dict[str, Any]:
     if p["prob"].notna().all() and len(p):
         y = (p["net"] > 0).to_numpy(dtype=float)
         out["calibration"] = calibration_metrics(p["prob"].to_numpy(), y, p["base_rate"].to_numpy())
+    out["excess_calibration"] = excess_calibration(p)
     return out
+
+
+def excess_calibration(p: pd.DataFrame) -> dict[str, float] | None:
+    """Least-squares line realised excess ~ intercept + slope x score, on pooled out-of-sample
+    predictions. Regression scores are over-confident in magnitude (slope ~0.3 on the first
+    data, ADR 0016); recommendations use this line, never the raw score, as expected excess."""
+    q = p[["score", "excess"]].dropna()
+    if len(q) < 100 or q["score"].std() == 0:
+        return None
+    slope, intercept = np.polyfit(q["score"].to_numpy(), q["excess"].to_numpy(), 1)
+    return {"slope": float(slope), "intercept": float(intercept), "n": len(q)}
 
 
 def _f(v: Any, pct: bool = False) -> str:

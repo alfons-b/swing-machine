@@ -30,6 +30,9 @@ prices_app = typer.Typer(help="Price series (raw / split / total-return)", no_ar
 features_app = typer.Typer(help="Feature store (Phase 2)", no_args_is_help=True)
 backup_app = typer.Typer(help="Backups, restore tests and archive copies", no_args_is_help=True)
 models_app = typer.Typer(help="Models: walk-forward evaluation and registry (Phase 2)", no_args_is_help=True)
+signals_app = typer.Typer(
+    help="Recommendations (BUY/WATCH/AVOID) and the signal registry", no_args_is_help=True
+)
 fin_app = typer.Typer(help="Point-in-time fundamentals (financial reports, ratios)", no_args_is_help=True)
 for sub, name in (
     (db_app, "db"),
@@ -43,6 +46,7 @@ for sub, name in (
     (backup_app, "backup"),
     (features_app, "features"),
     (models_app, "models"),
+    (signals_app, "signals"),
 ):
     app.add_typer(sub, name=name)
 
@@ -1440,6 +1444,80 @@ def models_reject(
             typer.echo(f"{mv.model_id}: {mv.status}")
     except RegistryError as exc:
         _fail(IdxTradingError(str(exc)))
+
+
+@signals_app.command("generate")
+def signals_generate(
+    horizon: Annotated[int, typer.Option(help="Holding horizon in sessions")] = 5,
+    model_id: Annotated[str | None, typer.Option(help="Default: the approved model of this horizon")] = None,
+    shadow: Annotated[bool, typer.Option(help="Research run (candidate model or past date)")] = False,
+    as_of: Annotated[datetime | None, typer.Option(formats=["%Y-%m-%d"], help="Signal date")] = None,
+    show: int = 15,
+) -> None:
+    """Make and store (immutably) one day's recommendations."""
+    from idx_trading.signals.service import SignalError, generate
+    from idx_trading.trading_config import load_trading_config
+
+    st = get_settings()
+    try:
+        with _db() as s:
+            r = generate(
+                s,
+                st.data_dir / "features",
+                st.data_dir / "models",
+                load_trading_config(),
+                horizon,
+                model_id=model_id,
+                shadow=shadow,
+                as_of=as_of.date() if as_of else None,
+                calendar_code=st.calendar_code,
+            )
+    except (SignalError, RuntimeError, FileNotFoundError) as exc:
+        _fail(IdxTradingError(str(exc)))
+    drift = "n/a" if r.drift != r.drift else f"{r.drift:+.2%}"
+    typer.echo(
+        f"signal run {r.run_id} [{r.mode}] {r.signal_date} H{horizon} model {r.model_id}: "
+        f"{r.counts} | ranked {r.cross_section} | market drift {drift}"
+    )
+    if r.mode == "shadow":
+        typer.echo("SHADOW run: research only, not a recommendation.")
+    ranked = sorted((d for d in r.decisions if d.rank), key=lambda d: d.rank or 0)
+    for d in ranked[:show]:
+        exp = "-" if d.expected_net is None else f"{d.expected_net:+.2%}"
+        typer.echo(
+            f"  {d.rank:>3} {d.ticker:6} {d.action:5} exp {exp:>7} entry<= {d.max_entry:,.0f} "
+            f"stop {d.stop:,.0f} target {d.target:,.0f} lots {d.lots}  {'; '.join(d.reasons)}"
+        )
+
+
+@signals_app.command("show")
+def signals_show(run_id: Annotated[int | None, typer.Argument()] = None, action: str = "BUY,WATCH") -> None:
+    """Print a stored signal run (default: the latest)."""
+    from sqlalchemy import select
+
+    from idx_trading.db.models import Signal, SignalRun
+
+    with _db() as s:
+        run = (
+            s.get(SignalRun, run_id)
+            if run_id
+            else s.scalar(select(SignalRun).order_by(SignalRun.run_id.desc()).limit(1))
+        )
+        if run is None:
+            _fail(IdxTradingError("no signal run"))
+        assert run is not None
+        typer.echo(
+            f"run {run.run_id} [{run.mode}] {run.signal_date} H{run.horizon} {run.model_id} "
+            f"expiry {run.expiry_date} {run.counts}"
+        )
+        wanted = {a.strip().upper() for a in action.split(",")}
+        for sig in s.scalars(select(Signal).where(Signal.run_id == run.run_id).order_by(Signal.rank)):
+            if sig.action in wanted:
+                typer.echo(
+                    f"  {sig.rank or '-':>3} {sig.ticker:6} {sig.action:5} "
+                    f"exp {sig.expected_net if sig.expected_net is None else f'{sig.expected_net:+.2%}'} "
+                    f"stop {sig.stop} target {sig.target} lots {sig.lots}  {sig.reasons or ''}"
+                )
 
 
 @sources_app.command("check")

@@ -95,6 +95,8 @@ def test_report_is_reproducible_and_recovers_a_planted_signal():
     assert res["lgbm_reg"]["overall"]["ic"] > 0.2
     assert abs(res["momentum"]["overall"]["ic"]) < 0.1  # momentum feature is pure noise here
     assert res["logistic"]["calibration"]["brier_skill"] > 0
+    cal = res["ridge"]["excess_calibration"]
+    assert cal["slope"] > 0 and cal["n"] > 100  # realised excess rises with the score
     assert r1["data"]["fingerprint"] and len(r1["folds"]) == 3
     assert "| ridge |" in render_markdown(r1)
 

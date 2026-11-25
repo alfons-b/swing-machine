@@ -23,6 +23,7 @@ from idx_trading.db.models.reference import (
     TickerHistory,
     TradingCalendarDay,
 )
+from idx_trading.db.models.signals import ImmutableRecordError, Signal, SignalRun
 from idx_trading.db.models.sources import DataSource, SourcePermission
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "DataSource",
     "FinancialFact",
     "FinancialReport",
+    "ImmutableRecordError",
     "IngestionRecord",
     "IngestionRun",
     "Instrument",
@@ -46,6 +48,8 @@ __all__ = [
     "RawArtifact",
     "ReconciliationResult",
     "Sector",
+    "Signal",
+    "SignalRun",
     "SourcePermission",
     "TickerHistory",
     "TradingCalendarDay",

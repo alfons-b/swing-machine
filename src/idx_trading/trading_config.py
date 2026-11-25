@@ -34,6 +34,23 @@ class Universe(BaseModel):
     note: str | None = None
 
 
+class Signals(BaseModel):
+    """Recommendation rules (ADR 0016). Fractions are of price, capital or traded value."""
+
+    model_config = ConfigDict(extra="forbid")
+    top_fraction: float = Field(default=0.2, gt=0, le=1)
+    buy_min_expected_net: float = Field(default=0.005, ge=0)
+    min_cross_section: int = Field(default=100, ge=10)
+    stop_atr: float = Field(default=1.5, gt=0)
+    reward_risk: float = Field(default=2.0, gt=0)
+    max_entry_atr: float = Field(default=0.5, ge=0)
+    risk_per_trade: float = Field(default=0.01, gt=0, le=0.05)
+    max_position: float = Field(default=0.2, gt=0, le=1)
+    max_adv_share: float = Field(default=0.02, gt=0, le=0.2)
+    dq_lookback_days: int = Field(default=30, ge=1)
+    drift_sessions: int = Field(default=20, ge=5)
+
+
 class TradingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     broker: str
@@ -42,6 +59,7 @@ class TradingConfig(BaseModel):
     costs: Costs
     slippage: Slippage
     universe: Universe = Universe()
+    signals: Signals = Signals()
 
     @property
     def round_trip_cost(self) -> Decimal:

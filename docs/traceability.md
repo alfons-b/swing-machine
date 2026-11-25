@@ -27,7 +27,10 @@ Milestone numbering is described in `implementation-log.md`.
 | FR-023 | Calibrated probability | Partial — Brier, ECE, reliability measured; calibration step not yet applied | `models/metrics.py` | `test_calibration_metrics` |
 | FR-026 | Model registry | Done (candidate → manual approval → retired; hash-verified artifacts) | `models/registry.py`, `model_versions` | `test_approval_is_manual_and_single_per_horizon`, `test_tampered_artifact_is_refused` |
 | FR-038 | Walk-forward validation | Done (expanding window, purge by label exit date, embargo) | `models/walkforward.py` | `test_split_purges_*`, `test_no_fold_uses_the_future` |
-| FR-042 | Immutable signals | Planned; same versioning pattern as ADR 0003 | — | — |
+| FR-030/031/032 | Signal generation, full ranking, top picks | Done (ADR 0016; production needs an approved model) | `signals/engine.py`, `signals/service.py` | `tests/unit/test_signals.py` |
+| FR-033 | Entry, target, stop | Done (ATR-based, IDX ticks, expiry = H sessions) | `signals/engine.py` | `test_levels_and_size_by_hand` |
+| FR-034 | Capital allocation | Partial (per-position size: risk, position and liquidity caps) | `signals/engine.py` | `test_levels_and_size_by_hand` |
+| FR-042 | Immutable signals | Done (ORM hook + PostgreSQL triggers, migration 0006) | `db/models/signals.py` | `test_signal_rows_cannot_be_changed_or_deleted` |
 | FR-049 | Pipeline monitoring | Partial — run log + CLI | `ingestion_runs`, `idx ingest runs/freshness` | `test_cli_end_to_end` |
 | FR-052 | Daily report | Planned | — | — |
 | All other FRs | Phase 2+ | Planned | — | — |

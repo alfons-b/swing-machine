@@ -21,3 +21,16 @@ universe:
   # a Rp 10-20 m position under ~2% of a day's volume. Revisit at the 30 Nov evaluation.
   min_price_idr: 200
   min_adv_idr: 1000000000
+signals:
+  # Agent-chosen defaults (ADR 0016); the owner reviews them on 30 Nov.
+  top_fraction: 0.2            # candidates = top 20% of the day's ranked stocks
+  buy_min_expected_net: 0.005  # BUY only if expected return after costs >= +0.5%
+  min_cross_section: 100       # fewer ranked stocks that day -> no BUY (ranks meaningless)
+  stop_atr: 1.5                # stop = entry - 1.5 x ATR14
+  reward_risk: 2.0             # target = entry + 2 x (entry - stop)
+  max_entry_atr: 0.5           # do not chase: max entry = close + 0.5 x ATR14
+  risk_per_trade: 0.01         # lose at most 1% of capital at the stop
+  max_position: 0.2            # at most 20% of capital in one stock
+  max_adv_share: 0.02          # at most 2% of 20-day mean traded value
+  dq_lookback_days: 30         # open data-quality errors in this window block a BUY
+  drift_sessions: 20           # market drift = median net return of the last 20 labelled days
