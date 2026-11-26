@@ -33,6 +33,7 @@ models_app = typer.Typer(help="Models: walk-forward evaluation and registry (Pha
 signals_app = typer.Typer(
     help="Recommendations (BUY/WATCH/AVOID) and the signal registry", no_args_is_help=True
 )
+backtest_app = typer.Typer(help="Backtests of the recommendation rules (Phase 3)", no_args_is_help=True)
 fin_app = typer.Typer(help="Point-in-time fundamentals (financial reports, ratios)", no_args_is_help=True)
 for sub, name in (
     (db_app, "db"),
@@ -47,6 +48,7 @@ for sub, name in (
     (features_app, "features"),
     (models_app, "models"),
     (signals_app, "signals"),
+    (backtest_app, "backtest"),
 ):
     app.add_typer(sub, name=name)
 
@@ -1518,6 +1520,46 @@ def signals_show(run_id: Annotated[int | None, typer.Argument()] = None, action:
                     f"exp {sig.expected_net if sig.expected_net is None else f'{sig.expected_net:+.2%}'} "
                     f"stop {sig.stop} target {sig.target} lots {sig.lots}  {sig.reasons or ''}"
                 )
+
+
+@backtest_app.command("run")
+def backtest_run(
+    horizon: Annotated[int, typer.Option(help="Holding horizon in sessions")] = 5,
+    model: Annotated[str, typer.Option(help="Model name (walk-forward refits it per fold)")] = "ridge",
+    ignore_hurdle: Annotated[bool, typer.Option(help="Buy the top fraction even below the hurdle")] = False,
+) -> None:
+    """Walk-forward backtest; writes data/backtests/bt-h<H>-<model>[-nohurdle].{json,csv}."""
+    import json as _json
+
+    from idx_trading.backtest.run import run_backtest, trades_frame
+    from idx_trading.trading_config import load_trading_config
+
+    st = get_settings()
+    try:
+        with _db() as s:
+            res, rep = run_backtest(
+                s,
+                st.data_dir / "features",
+                load_trading_config(),
+                horizon,
+                model,
+                ignore_hurdle=ignore_hurdle,
+            )
+    except (RuntimeError, ValueError, FileNotFoundError) as exc:
+        _fail(IdxTradingError(str(exc)))
+    out = st.data_dir / "backtests"
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"bt-h{horizon}-{model}" + ("-nohurdle" if ignore_hurdle else "")
+    (out / f"{stem}.json").write_text(_json.dumps(rep, indent=2, default=str))
+    trades_frame(res).to_csv(out / f"{stem}-trades.csv", index=False)
+    res.equity.to_csv(out / f"{stem}-equity.csv", header=["equity"])
+    pct = {"total_return", "max_drawdown", "hit_rate", "mean_trade_return"}
+    for k, v in rep.items():
+        if k == "simplifications":
+            continue
+        is_pct = isinstance(v, float) and (k in pct or k.startswith("benchmark_"))
+        typer.echo(f"  {k:30} {v:.2%}" if is_pct else f"  {k:30} {v}")
+    typer.echo(f"-> {out / stem}.json")
 
 
 @sources_app.command("check")

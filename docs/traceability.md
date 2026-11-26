@@ -31,6 +31,9 @@ Milestone numbering is described in `implementation-log.md`.
 | FR-033 | Entry, target, stop | Done (ATR-based, IDX ticks, expiry = H sessions) | `signals/engine.py` | `test_levels_and_size_by_hand` |
 | FR-034 | Capital allocation | Partial (per-position size: risk, position and liquidity caps) | `signals/engine.py` | `test_levels_and_size_by_hand` |
 | FR-042 | Immutable signals | Done (ORM hook + PostgreSQL triggers, migration 0006) | `db/models/signals.py` | `test_signal_rows_cannot_be_changed_or_deleted` |
+| FR-037 | Historical backtesting | Done (walk-forward signals, ADR 0017) | `backtest/engine.py`, `backtest/run.py` | `tests/unit/test_backtest.py` |
+| FR-039 | Multi-benchmark | Partial (cash, equal-weight floor universe; no IHSG data yet, OI-46) | `backtest/engine.py` | `test_equity_marks_to_market_and_benchmark` |
+| FR-040 | Transaction cost simulation | Done (Stockbit costs, 1-tick slippage, lots, cash) | `backtest/engine.py` | `test_target_hit_with_costs_and_slippage_by_hand` |
 | FR-049 | Pipeline monitoring | Partial — run log + CLI | `ingestion_runs`, `idx ingest runs/freshness` | `test_cli_end_to_end` |
 | FR-052 | Daily report | Planned | — | — |
 | All other FRs | Phase 2+ | Planned | — | — |

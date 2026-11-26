@@ -40,7 +40,7 @@ Reports the owner uploads in the chat are imported by the next run (`idx fin imp
 | M2.2 ✅ 2026-11-23 (ADR 0014) | Path-aware labels for H1–H4 (3/5/10/20/40 days): forward return net of costs, MFE, MAE; entry at the next session's open | Label tests on synthetic paths |
 | M2.3 ✅ 2026-11-24 (ADR 0015) | Model registry + walk-forward evaluation; baselines (momentum rank, logistic/ridge) and LightGBM; calibration (Brier, reliability) | Reproducible comparison report |
 | M2.4 ✅ 2026-11-25 (ADR 0016) | Ranking + recommendation engine: BUY/WATCH/AVOID, entry/target/stop/expiry, risk and data-quality gates; immutable signal registry | No BUY on blocked or ineligible data (tests) |
-| M3.1 | Backtester: long-only, next-open execution, costs, slippage, lots of 100, multi-benchmark | Matches hand-computed cases |
+| M3.1 ✅ 2026-11-26 (ADR 0017) | Backtester: long-only, next-open execution, costs, slippage, lots of 100, multi-benchmark | Matches hand-computed cases |
 
 Phase 5 (dashboard, Supabase, Google OAuth, Telegram, Cloudflare) needs the owner's accounts
 and is prepared but not deployed before 2026-11-30.

@@ -299,3 +299,21 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
   - ridge-h10-3cf51772a422
   - lgbm_reg-h10-7f0ca0328849
 - 282 tests pass.
+
+## 2026-11-26 — Daily run 5, M3.1 backtester
+
+- **Daily run:** healthy.
+  - +3,383 bars; 488 stocks with about a year of history; data through 2026-11-26.
+  - Vendor reconciliation: 50 pass, 1 acknowledged.
+- **M3.1** backtester (ADR 0017):
+  - Next-open fills; 1-tick slippage; Stockbit costs; lots of 100; cash limit.
+  - Worst-case stop/target order; gap exits.
+  - Adjusted-price P&L, so dividends and splits during a trade count.
+  - Benchmarks: cash and equal-weight.
+  - Walk-forward signals with calibration from earlier folds only.
+- **Result (May–Nov 2026):**
+  - The configured rules made 0 trades, so 0.0% versus −22% for the equal-weight market.
+  - Ignoring the hurdle made 257–329 trades and returned −22% to −37%.
+- **Fix:** an earlier scripted edit had duplicated the M2.3/M2.4 CLI commands in the working
+  tree, before any commit. Ruff caught it (F811) and the copy was removed.
+- 289 tests pass.
