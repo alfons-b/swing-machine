@@ -79,7 +79,7 @@
 ## Addendum 2026-11-27 — exit-rule study (OI-47) and a correction
 
 The same walk-forward signals were run with stop widths of 1–4 ATR or none, and targets of
-1R–3R or none (). This is research only: picking the best row of
+1R–3R or none (`scripts/exit_rule_study.py`). This is research only: picking the best row of
 these tables on the same period would be in-sample selection, so **no configuration was
 changed**.
 

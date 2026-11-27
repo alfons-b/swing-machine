@@ -324,7 +324,7 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
   - +3,583 bars; 503 stocks with about a year of history; data through 2026-11-27.
   - Vendor reconciliation: 52 pass, 1 acknowledged.
 - **Exit-rule study (OI-47):** 20 stop/target pairs × hurdle on/off × H5/H10, on walk-forward
-  signals ().
+  signals (`scripts/exit_rule_study.py`).
   - No configuration was changed (in-sample).
   - **Correction:** with LightGBM H10 the configured rules lose −10.5% over 82 trades. The
     "0 trades" result applied to ridge only. No candidate is fit for approval.
