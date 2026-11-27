@@ -178,3 +178,17 @@ def test_historical_orders_use_only_earlier_folds():
     bad = labels.assign(net_5=-0.05)
     assert build_orders(data, oos, bad, cfg, 5, sessions)[0] == []
     assert build_orders(data, oos, bad, cfg, 5, sessions, ignore_hurdle=True)[0]
+
+
+def test_exit_rule_overrides_change_levels_only():
+    from idx_trading.backtest.run import build_orders
+
+    data, oos, labels, cfg, sessions = _hist()
+    base, _ = build_orders(data, oos, labels, cfg, 5, sessions)
+    wide, _ = build_orders(
+        data, oos, labels, cfg, 5, sessions, overrides={"stop_atr": 3.0, "reward_risk": 1.0}
+    )
+    assert [(o.signal_date, o.ticker) for o in base] == [(o.signal_date, o.ticker) for o in wide]
+    b, w = base[0], wide[0]
+    assert w.stop < b.stop  # 3 ATR below instead of 1.5
+    assert w.target - 1000 == pytest.approx(1000 - w.stop, abs=5)  # 1R target

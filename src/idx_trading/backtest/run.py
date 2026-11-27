@@ -49,8 +49,9 @@ def build_orders(
     sessions: list[date],
     *,
     ignore_hurdle: bool = False,
+    overrides: dict[str, float] | None = None,
 ) -> tuple[list[Order], dict[str, Any]]:
-    sig_cfg = cfg.signals
+    sig_cfg = cfg.signals.model_copy(update=overrides or {})
     if ignore_hurdle:
         sig_cfg = sig_cfg.model_copy(update={"buy_min_expected_net": -1.0})
     pos = {d: i for i, d in enumerate(sessions)}
