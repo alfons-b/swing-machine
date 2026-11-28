@@ -328,3 +328,13 @@ Owner: (1) honest client identity for BCA, yes; (2) supplied ANTAM H1-2025 state
   - No configuration was changed (in-sample).
   - **Correction:** with LightGBM H10 the configured rules lose −10.5% over 82 trades. The
     "0 trades" result applied to ridge only. No candidate is fit for approval.
+
+## 2026-11-28 — Daily run 7 (Saturday), planner fix
+
+- **Daily run:** healthy. No session today; 16 more stocks were backfilled, giving 518 stocks
+  with about a year of history.
+- **Fix:** JELI got HTTP 404 from EODHD on four days in a row (25–28 Nov). The vendor does
+  not carry it, and it used 1 of the 16 daily calls each time.
+  - The refresh planner now moves a ticker with a 404 in the last 7 days to the back of the
+    queue (`plan_refresh(not_found_backoff_days=7)`).
+  - A test covers this.

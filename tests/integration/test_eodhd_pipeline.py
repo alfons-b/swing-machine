@@ -202,3 +202,46 @@ def test_cli_import_eodhd_master(tmp_path, monkeypatch, fake):
     assert "created=1 already_known=1 skipped=3 calls=1" in out.output
     assert "DUPE: ISIN IDA000010001 already belongs" in out.output
     get_settings.cache_clear()
+
+
+def test_plan_refresh_backs_off_from_recent_404(seeded, run):
+    from datetime import UTC, datetime, timedelta
+
+    from idx_trading.db.models import ArtifactFetch
+
+    run(
+        [
+            TickerWindow("BBCA", D(2026, 11, 18), D(2026, 11, 20)),
+            TickerWindow("TLKM", D(2026, 11, 18), D(2026, 11, 19)),
+        ]
+    )
+    with session_scope(seeded) as s:
+        some = s.scalars(select(ArtifactFetch).limit(1)).one()
+        s.add(
+            ArtifactFetch(
+                artifact_id=some.artifact_id,
+                run_id=some.run_id,
+                source_id="eodhd",
+                retrieved_at=datetime.now(tz=UTC) - timedelta(days=1),
+                kind="per_ticker",
+                ticker="NEWX",
+                extra={"http_status": 404},
+            )
+        )
+    with session_scope(seeded) as s:
+        members = [
+            (m.ticker, m.instrument_id)
+            for m in InstrumentService(s).universe_on(D(2026, 11, 20))
+            if m.eligible
+        ]
+        assert [
+            p.ticker for p in plan_refresh(s, "eodhd", members, D(2026, 11, 20), 10, D(2025, 11, 21))
+        ] == [
+            "TLKM",
+            "NEWX",
+        ]
+        # an old 404 no longer holds the ticker back
+        plan = plan_refresh(
+            s, "eodhd", members, D(2026, 11, 20), 10, D(2025, 11, 21), not_found_backoff_days=0
+        )
+        assert [p.ticker for p in plan] == ["NEWX", "TLKM"]

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from idx_trading.calendar import CalendarService
-from idx_trading.db.models import DailyPrice
+from idx_trading.db.models import ArtifactFetch, DailyPrice
 
 
 @dataclass(frozen=True)
@@ -88,14 +88,25 @@ def plan_refresh(
     budget: int,
     history_start: date,
     priority: list[str] | None = None,
+    not_found_backoff_days: int = 7,
 ) -> list[RefreshItem]:
     """Choose which tickers to refresh when calls are scarce (per-ticker sources).
 
     One call fetches any date window, so each chosen ticker is brought fully up to
     `target`. Priority: never-fetched first, then the stalest; within a tie, tickers
     in `priority` first (in that order), then alphabetical. Tickers already at
-    `target` are skipped.
+    `target` are skipped. A ticker the source answered with HTTP 404 in the last
+    `not_found_backoff_days` goes to the back of the queue, so a symbol the vendor does
+    not carry does not use up a scarce call every day (JELI, 2026-11-25..28).
     """
+    since = datetime.now(tz=UTC) - timedelta(days=not_found_backoff_days)
+    not_found: set[str] = set()
+    for f in session.scalars(
+        select(ArtifactFetch).where(ArtifactFetch.source_id == source_id, ArtifactFetch.kind == "per_ticker")
+    ):
+        at = f.retrieved_at if f.retrieved_at.tzinfo else f.retrieved_at.replace(tzinfo=UTC)  # SQLite
+        if f.ticker and at >= since and (f.extra or {}).get("http_status") == 404:
+            not_found.add(f.ticker)
     latest = dict(
         session.execute(
             select(DailyPrice.instrument_id, func.max(DailyPrice.trade_date))
@@ -113,6 +124,7 @@ def plan_refresh(
     rank = {t: k for k, t in enumerate(priority or [])}
     items.sort(
         key=lambda i: (
+            i.ticker in not_found,
             i.latest_stored is not None,
             i.latest_stored or date.min,
             rank.get(i.ticker, len(rank)),
